@@ -160,6 +160,10 @@
 .detail-grid > div { display: flex; gap: 10px; font-size: 14px; }
 .detail-label { width: 110px; color: #888; flex-shrink: 0; }
 
+.gap-text-bad { color: #c0392b !important; }
+.gap-text-warn { color: #BA7517 !important; }
+.gap-missing-list { margin-bottom: 4px; }
+
 .muted { color: #888; font-size: 13px; }
 .small { font-size: 12px; }
 
