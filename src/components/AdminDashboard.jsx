@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { CATEGORIES } from '../data/assessment';
+import { CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES } from '../data/assessment';
 import '../styles/admin.css';
 
 const STATUSES = ['New', 'Onboarding', 'In Review', 'Inspection Ready', 'On Hold'];
@@ -159,6 +159,30 @@ export function AdminDashboard() {
                 </>
               )}
 
+              <h4>Document gaps</h4>
+              {!selected.gaps && <p className="muted">No gap data.</p>}
+              {selected.gaps && (
+                <>
+                  <p className="detail-overall">
+                    <span className="readiness-badge good">{selected.gaps.counts.found} found</span>{' '}
+                    <span className="readiness-badge mid">{selected.gaps.counts.expired} expired</span>{' '}
+                    <span className="readiness-badge low">{selected.gaps.counts.missing} missing</span>
+                  </p>
+                  {selected.gaps.items.filter((i) => i.status !== 'found').length > 0 && (
+                    <div className="gap-missing-list">
+                      {selected.gaps.items.filter((i) => i.status !== 'found').map((i) => (
+                        <div className="category-row" key={i.id}>
+                          <span className="category-name">{i.name}</span>
+                          <span className={`category-percent ${i.status === 'missing' ? 'gap-text-bad' : 'gap-text-warn'}`}>
+                            {i.status === 'missing' ? 'Missing' : `Expired ${i.expirationDate}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
               <h4>Documents ({selected.documents.length})</h4>
               {selected.documents.length === 0 && <p className="muted">None uploaded.</p>}
               {selected.documents.map((d) => (
@@ -166,6 +190,13 @@ export function AdminDashboard() {
                   <div className="doc-info">
                     <span className="doc-name">{d.name}</span>
                     <span className="doc-meta">{d.category} · {(d.size / 1024).toFixed(0)} KB · {new Date(d.uploadedAt).toLocaleDateString()}</span>
+                    {d.analysis && (
+                      <span className="doc-meta">
+                        AI: {REQUIRED_DOC_NAMES[d.analysis.docType] || 'Other'}
+                        {d.analysis.expirationDate ? ` · expires ${d.analysis.expirationDate}` : ''}
+                        {d.analysis.issues?.length ? ` · ⚠ ${d.analysis.issues.join(', ')}` : ''}
+                      </span>
+                    )}
                   </div>
                   <a className="link-button" href={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/documents/${d.id}/download`}>Download</a>
                 </div>

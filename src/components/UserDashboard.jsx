@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { CATEGORIES, ANSWER_OPTIONS, DOCUMENT_CATEGORIES } from '../data/assessment';
+import { CATEGORIES, ANSWER_OPTIONS, DOCUMENT_CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES } from '../data/assessment';
 import '../styles/dashboard.css';
 
 function ScoreRing({ value }) {
@@ -45,7 +45,14 @@ export function UserDashboard() {
   const [docCategory, setDocCategory] = useState(DOCUMENT_CATEGORIES[0]);
   const [uploading, setUploading] = useState(false);
   const [docError, setDocError] = useState('');
+  const [analyzing, setAnalyzing] = useState({});
+  const [aiNotice, setAiNotice] = useState('');
+  const [gaps, setGaps] = useState(null);
   const fileInputRef = useRef(null);
+
+  const refreshGaps = () => {
+    api('/api/gaps').then((d) => setGaps(d.gaps)).catch(() => {});
+  };
 
   useEffect(() => {
     api('/api/assessment').then((d) => {
@@ -56,7 +63,23 @@ export function UserDashboard() {
       }
     }).catch(() => {});
     api('/api/documents').then((d) => setDocuments(d.documents || [])).catch(() => {});
+    api('/api/gaps').then((d) => setGaps(d.gaps)).catch(() => {});
   }, [api]);
+
+  const analyzeDoc = async (id) => {
+    setAnalyzing((prev) => ({ ...prev, [id]: true }));
+    setAiNotice('');
+    try {
+      const d = await api(`/api/documents/${id}/analyze`, { method: 'POST' });
+      setDocuments((prev) => prev.map((doc) => (doc.id === id ? { ...doc, analysis: d.analysis } : doc)));
+      refreshGaps();
+    } catch (err) {
+      if (err.status === 501) setAiNotice(err.message);
+      else setDocError(err.message || 'Analysis failed');
+    } finally {
+      setAnalyzing((prev) => ({ ...prev, [id]: false }));
+    }
+  };
 
   const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
   const totalQuestions = useMemo(() => CATEGORIES.reduce((n, c) => n + c.questions.length, 0), []);
@@ -106,6 +129,7 @@ export function UserDashboard() {
         }),
       });
       setDocuments((prev) => [d.document, ...prev]);
+      analyzeDoc(d.document.id); // kick off AI analysis automatically
     } catch (err) {
       setDocError(err.message || 'Upload failed');
     } finally {
@@ -117,6 +141,7 @@ export function UserDashboard() {
     try {
       await api(`/api/documents/${id}`, { method: 'DELETE' });
       setDocuments((prev) => prev.filter((d) => d.id !== id));
+      refreshGaps();
     } catch (err) {
       setDocError(err.message || 'Delete failed');
     }
@@ -138,6 +163,9 @@ export function UserDashboard() {
       <nav className="dash-tabs">
         <button className={tab === 'assessment' ? 'active' : ''} onClick={() => setTab('assessment')}>Readiness Assessment</button>
         <button className={tab === 'documents' ? 'active' : ''} onClick={() => setTab('documents')}>Documents</button>
+        <button className={tab === 'gaps' ? 'active' : ''} onClick={() => { setTab('gaps'); refreshGaps(); }}>
+          Compliance Gaps{gaps && gaps.counts.missing + gaps.counts.expired > 0 ? ` (${gaps.counts.missing + gaps.counts.expired})` : ''}
+        </button>
         <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}>Account</button>
       </nav>
 
@@ -206,8 +234,9 @@ export function UserDashboard() {
         <div className="dash-grid">
           <section className="card">
             <h3 className="card-title">Upload a compliance document</h3>
-            <p className="muted">PDF, Word, Excel, or images · 5 MB max per file</p>
+            <p className="muted">PDF or images work best (AI analysis) · 5 MB max per file</p>
             {docError && <div className="error-banner">{docError}</div>}
+            {aiNotice && <div className="notice-banner">{aiNotice}</div>}
             <div className="upload-row">
               <select value={docCategory} onChange={(e) => setDocCategory(e.target.value)}>
                 {DOCUMENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -223,10 +252,28 @@ export function UserDashboard() {
             <h3 className="card-title">Your documents ({documents.length})</h3>
             {documents.length === 0 && <p className="muted">No documents uploaded yet.</p>}
             {documents.map((d) => (
-              <div className="doc-row" key={d.id}>
+              <div className="doc-row doc-row-tall" key={d.id}>
                 <div className="doc-info">
                   <span className="doc-name">{d.name}</span>
                   <span className="doc-meta">{d.category} · {(d.size / 1024).toFixed(0)} KB · {new Date(d.uploadedAt).toLocaleDateString()}</span>
+                  {d.analysis ? (
+                    <span className="doc-analysis">
+                      <span className="analysis-chip">{REQUIRED_DOC_NAMES[d.analysis.docType] || 'Other'}</span>
+                      {d.analysis.expirationDate && (
+                        <span className={`analysis-chip ${d.analysis.expirationDate < new Date().toISOString().slice(0, 10) ? 'chip-bad' : 'chip-ok'}`}>
+                          {d.analysis.expirationDate < new Date().toISOString().slice(0, 10) ? 'Expired ' : 'Expires '}{d.analysis.expirationDate}
+                        </span>
+                      )}
+                      {d.analysis.signed === false && <span className="analysis-chip chip-warn">Unsigned</span>}
+                      {d.analysis.issues?.map((iss, i) => <span className="analysis-chip chip-warn" key={i}>{iss}</span>)}
+                    </span>
+                  ) : (
+                    <span className="doc-analysis">
+                      {analyzing[d.id]
+                        ? <span className="analysis-chip">Analyzing…</span>
+                        : <button className="link-button small" onClick={() => analyzeDoc(d.id)}>Run AI analysis</button>}
+                    </span>
+                  )}
                 </div>
                 <div className="doc-actions">
                   <a className="link-button" href={`/api/documents/${d.id}/download`}>Download</a>
@@ -235,6 +282,64 @@ export function UserDashboard() {
               </div>
             ))}
           </section>
+        </div>
+      )}
+
+      {tab === 'gaps' && (
+        <div className="dash-grid">
+          <section className="card">
+            <h3 className="card-title">Document gap analysis</h3>
+            {!gaps && <p className="muted">Loading…</p>}
+            {gaps && !gaps.aiConfigured && (
+              <div className="notice-banner">AI analysis isn't configured yet — gap detection activates once the site owner adds an Anthropic API key in Netlify.</div>
+            )}
+            {gaps && gaps.analyzedCount === 0 && gaps.aiConfigured && (
+              <p className="muted">Upload documents in the Documents tab — each one is analyzed automatically and checked off this list.</p>
+            )}
+            {gaps && (
+              <div className="gap-counts">
+                <span className="readiness-chip chip-ok">{gaps.counts.found} found</span>
+                <span className="readiness-chip chip-warn">{gaps.counts.expired} expired</span>
+                <span className="readiness-chip chip-bad">{gaps.counts.missing} missing</span>
+              </div>
+            )}
+          </section>
+
+          {gaps && Object.entries(GAP_CATEGORY_NAMES).map(([catId, catName]) => {
+            const items = gaps.items.filter((i) => i.category === catId);
+            if (!items.length) return null;
+            return (
+              <section className="card" key={catId}>
+                <h3 className="card-title">{catName}</h3>
+                {items.map((item) => (
+                  <div className="gap-row" key={item.id}>
+                    <span className={`gap-status gap-${item.status}`}>
+                      {item.status === 'found' ? '✓' : item.status === 'expired' ? '!' : '✗'}
+                    </span>
+                    <span className="gap-name">{item.name}</span>
+                    <span className="gap-detail muted small">
+                      {item.status === 'found' && `${item.docName}${item.expirationDate ? ` · expires ${item.expirationDate}` : ''}`}
+                      {item.status === 'expired' && `${item.docName} · expired ${item.expirationDate}`}
+                      {item.status === 'missing' && 'Not on file'}
+                    </span>
+                  </div>
+                ))}
+              </section>
+            );
+          })}
+
+          {gaps && gaps.flagged.length > 0 && (
+            <section className="card">
+              <h3 className="card-title">Documents with issues</h3>
+              {gaps.flagged.map((f) => (
+                <div className="gap-row" key={f.docId}>
+                  <span className="gap-status gap-expired">!</span>
+                  <span className="gap-name">{f.docName}</span>
+                  <span className="gap-detail muted small">{f.issues.join(' · ')}</span>
+                </div>
+              ))}
+            </section>
+          )}
         </div>
       )}
 
