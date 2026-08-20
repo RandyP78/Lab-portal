@@ -49,6 +49,15 @@ html, body, #root {
   border-left: 4px solid #c33;
 }
 
+.info-message {
+  background: #e8f4ee;
+  color: #0F6E56;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border-left: 4px solid #0F6E56;
+}
+
 form {
   display: flex;
   flex-direction: column;
