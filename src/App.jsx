@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { LandingPage } from './components/LandingPage'
 import { RegistrationForm } from './components/RegistrationForm'
 import { LoginForm } from './components/LoginForm'
 import { UserDashboard } from './components/UserDashboard'
@@ -41,8 +42,8 @@ export default function App() {
           <Route path="/login" element={<LoginForm />} />
           <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          <Route path="/" element={<Navigate to="/register" />} />
-          <Route path="*" element={<Navigate to="/register" />} />
+          <Route path="/" element={<LandingPage />} />
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
