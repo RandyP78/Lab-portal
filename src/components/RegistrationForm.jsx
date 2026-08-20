@@ -10,6 +10,8 @@ export function RegistrationForm() {
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     email: '',
+    password: '',
+    confirmPassword: '',
     firstName: '',
     lastName: '',
     phone: '',
@@ -35,7 +37,7 @@ export function RegistrationForm() {
     setError('');
 
     try {
-      if (!formData.email || !formData.firstName || !formData.lastName || 
+      if (!formData.email || !formData.firstName || !formData.lastName ||
           !formData.businessName || !formData.labType) {
         setError('Please fill in all required fields');
         setIsLoading(false);
@@ -49,14 +51,21 @@ export function RegistrationForm() {
         return;
       }
 
-      // For now, just show success message (no backend yet)
-      alert('Registration successful! Check your email to set password.');
-      navigate('/login', {
-        state: {
-          message: 'Registration successful! Check your email to set your password.',
-          email: formData.email
-        }
-      });
+      if (formData.password.length < 8) {
+        setError('Password must be at least 8 characters');
+        setIsLoading(false);
+        return;
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        setError('Passwords do not match');
+        setIsLoading(false);
+        return;
+      }
+
+      const { confirmPassword, ...payload } = formData;
+      const user = await register(payload);
+      navigate(user.role === 'admin' ? '/admin' : '/dashboard', { replace: true });
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -82,8 +91,38 @@ export function RegistrationForm() {
               value={formData.email}
               onChange={handleChange}
               placeholder="your@email.com"
+              autoComplete="email"
               required
             />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="password">Password *</label>
+              <input
+                id="password"
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="Min. 8 characters"
+                autoComplete="new-password"
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="confirmPassword">Confirm Password *</label>
+              <input
+                id="confirmPassword"
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                placeholder="Repeat password"
+                autoComplete="new-password"
+                required
+              />
+            </div>
           </div>
 
           <div className="form-row">
