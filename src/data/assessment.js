@@ -69,6 +69,37 @@ export const ANSWER_OPTIONS = [
   { value: 0, label: "No" },
 ];
 
+// Required-documents checklist — mirrored in netlify/functions/api.js (IDs must match)
+export const REQUIRED_DOC_NAMES = {
+  clia_certificate: "CLIA certificate",
+  state_license: "State laboratory license",
+  pt_enrollment: "Proficiency testing enrollment",
+  personnel_qualifications: "Personnel qualifications (licenses/diplomas)",
+  competency_assessment: "Competency assessments",
+  training_records: "Training records",
+  sop_document: "Standard operating procedures (SOPs)",
+  document_control_policy: "Document control policy",
+  validation_report: "Instrument validation/verification report",
+  calibration_record: "Calibration records",
+  maintenance_log: "Preventive maintenance log",
+  temperature_log: "Temperature monitoring log",
+  qc_records: "Quality control records",
+  qc_corrective_action: "QC corrective action documentation",
+  exposure_control_plan: "Bloodborne pathogen exposure control plan",
+  chemical_hygiene_plan: "Chemical hygiene plan",
+  safety_training: "Safety training records",
+  other: "Other document",
+};
+
+export const GAP_CATEGORY_NAMES = {
+  regulatory: "Regulatory (CLIA)",
+  personnel: "Personnel & training",
+  sops: "SOPs & documentation",
+  equipment: "Equipment & validation",
+  qc: "Quality control & testing",
+  safety: "Safety & compliance",
+};
+
 export const DOCUMENT_CATEGORIES = [
   "CLIA / Licensure",
   "Personnel Records",
