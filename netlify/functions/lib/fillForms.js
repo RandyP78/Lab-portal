@@ -3,8 +3,38 @@
 // wording ("laboratory" vs "facility", "EIN" vs "Federal Tax ID", etc.).
 import { PDFDocument, PDFName } from "pdf-lib";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-const BLANK_DIR = new URL("../forms-blank/", import.meta.url);
+// The bundler relocates this module at deploy time, so the blank-form folder
+// can't be found with one fixed relative path — probe the likely locations once.
+let BLANK_DIR = null;
+function resolveBlankDir() {
+  if (BLANK_DIR) return BLANK_DIR;
+  const candidates = [];
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    candidates.push(
+      path.join(here, "..", "forms-blank"),
+      path.join(here, "forms-blank"),
+      path.join(here, "netlify", "functions", "forms-blank"),
+      path.join(here, "..", "netlify", "functions", "forms-blank"),
+      path.join(here, "..", "..", "netlify", "functions", "forms-blank"),
+    );
+  } catch { /* import.meta unavailable */ }
+  candidates.push(
+    path.join(process.cwd(), "netlify", "functions", "forms-blank"),
+    "/var/task/netlify/functions/forms-blank",
+    path.join(process.cwd(), "forms-blank"),
+  );
+  for (const c of candidates) {
+    try {
+      if (existsSync(path.join(c, "CMS116.pdf"))) { BLANK_DIR = c; return c; }
+    } catch { /* keep probing */ }
+  }
+  throw new Error("forms-blank directory not found. Tried: " + candidates.join(" | "));
+}
 
 // ---------- form catalog + packet logic ----------
 export const FORM_CATALOG = [
@@ -513,7 +543,7 @@ async function fillTxForm(q, bytes) {
 export async function fillFormPdf(formId, q) {
   const def = FORM_CATALOG.find((f) => f.id === formId);
   if (!def) return null;
-  const bytes = await readFile(new URL(def.file, BLANK_DIR));
+  const bytes = await readFile(path.join(resolveBlankDir(), def.file));
 
   if (formId === "TX3225") {
     const out = await fillTxForm(q || {}, bytes);
