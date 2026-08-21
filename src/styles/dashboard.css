@@ -404,3 +404,19 @@
   cursor: pointer; padding: 0 2px; font-weight: 700;
 }
 .q-state-remove:hover { color: #c0392b; }
+
+/* patient-states checkbox grid + NY disclaimer */
+.q-state-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px 10px;
+  margin: 10px 0;
+}
+.q-state-check {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px; border: 1px solid #e2e2ea; border-radius: 8px;
+  font-size: 13.5px; cursor: pointer; user-select: none; background: #fff;
+}
+.q-state-check.on { border-color: #0F6E56; background: #d9efe7; color: #0F6E56; font-weight: 600; }
+.q-state-check .q-state-note { font-size: 10px; font-weight: 700; background: #0F6E56; color: #fff; border-radius: 999px; padding: 1px 7px; margin-left: auto; }
+.q-ny-disclaimer { margin-top: 12px; padding: 10px 12px; background: #fdf6e9; border: 1px solid #ecd9ae; border-radius: 8px; color: #7a5c1e; }

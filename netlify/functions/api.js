@@ -2,6 +2,7 @@
 import { getStore } from "@netlify/blobs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { buildPacket, fillFormPdf, FORM_CATALOG } from "./lib/fillForms.js";
+import JSZip from "jszip";
 
 const SESSION_DAYS = 7;
 const MAX_DOC_BYTES = 5 * 1024 * 1024; // 5 MB per document
@@ -222,7 +223,7 @@ async function handleDocList(user, email) {
   return json({ documents: await attachAnalyses(email, docs) });
 }
 
-async function handleDocUpload(req, user) {
+async function handleDocUpload(req, ownerEmail, uploadedBy) {
   let body;
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
   const { name, category, contentType, dataBase64 } = body || {};
@@ -240,12 +241,68 @@ async function handleDocUpload(req, user) {
     contentType: String(contentType || "application/octet-stream").slice(0, 100),
     size: buf.length,
     uploadedAt: new Date().toISOString(),
-    owner: user.email,
+    owner: ownerEmail,
   };
+  if (uploadedBy && uploadedBy !== ownerEmail) meta.uploadedBy = uploadedBy;
   const s = store();
-  await s.set(`docfile:${user.email}:${id}`, buf);
-  await s.setJSON(`doc:${user.email}:${id}`, meta);
+  await s.set(`docfile:${ownerEmail}:${id}`, buf);
+  await s.setJSON(`doc:${ownerEmail}:${id}`, meta);
   return json({ document: meta }, 201);
+}
+
+// Everything the portal holds for one client, zipped: profile, assessment,
+// questionnaire, gap report, AI analyses, and every uploaded document.
+async function handleClientExport(email) {
+  const s = store();
+  const u = await s.get(`user:${email}`, { type: "json" });
+  if (!u) return json({ error: "Client not found" }, 404);
+
+  const zip = new JSZip();
+  zip.file("profile.json", JSON.stringify(publicUser(u), null, 2));
+
+  const assessment = await s.get(`assessment:${email}`, { type: "json" });
+  if (assessment) zip.file("readiness-assessment.json", JSON.stringify(assessment, null, 2));
+  const questionnaire = await s.get(`questionnaire:${email}`, { type: "json" });
+  if (questionnaire) zip.file("licensing-questionnaire.json", JSON.stringify(questionnaire, null, 2));
+  try {
+    zip.file("gap-report.json", JSON.stringify(await computeGaps(email), null, 2));
+  } catch { /* gaps optional */ }
+
+  const { blobs } = await s.list({ prefix: `doc:${email}:` });
+  const docsMeta = [];
+  const analyses = {};
+  const folder = zip.folder("documents");
+  const usedNames = new Set();
+  for (const b of blobs) {
+    const meta = await s.get(b.key, { type: "json" });
+    if (!meta) continue;
+    docsMeta.push(meta);
+    const buf = await s.get(`docfile:${email}:${meta.id}`, { type: "arrayBuffer" });
+    if (buf) {
+      let fname = String(meta.name || meta.id).replace(/[\\/:*?"<>|]/g, "_");
+      if (usedNames.has(fname)) fname = `${meta.id}-${fname}`;
+      usedNames.add(fname);
+      folder.file(fname, buf);
+    }
+    const a = await s.get(`analysis:${email}:${meta.id}`, { type: "json" });
+    if (a) analyses[meta.name || meta.id] = a;
+  }
+  if (docsMeta.length) zip.file("documents-index.json", JSON.stringify(docsMeta, null, 2));
+  if (Object.keys(analyses).length) zip.file("ai-analyses.json", JSON.stringify(analyses, null, 2));
+
+  const bytes = await zip.generateAsync({
+    type: "uint8array",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+  const base = String(u.businessName || email).replace(/[^\w.-]+/g, "_").slice(0, 80) || "client";
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${base}-export.zip"`,
+    },
+  });
 }
 
 async function handleDocDownload(email, id) {
@@ -753,7 +810,7 @@ export default async function handler(req) {
     }
 
     if (path === "/api/documents" && method === "GET") return await handleDocList(user, user.email);
-    if (path === "/api/documents" && method === "POST") return await handleDocUpload(req, user);
+    if (path === "/api/documents" && method === "POST") return await handleDocUpload(req, user.email, user.email);
 
     let m = path.match(/^\/api\/documents\/([a-f0-9]{16})\/download$/);
     if (m && method === "GET") return await handleDocDownload(user.email, m[1]);
@@ -797,6 +854,19 @@ export default async function handler(req) {
       m = path.match(/^\/api\/admin\/clients\/([^/]+)\/documents\/([a-f0-9]{16})\/analyze$/);
       if (m && method === "POST") {
         return await handleDocAnalyze(decodeURIComponent(m[1]).toLowerCase(), m[2]);
+      }
+
+      m = path.match(/^\/api\/admin\/clients\/([^/]+)\/documents$/);
+      if (m && method === "POST") {
+        const email = decodeURIComponent(m[1]).toLowerCase();
+        const target = await store().get(`user:${email}`, { type: "json" });
+        if (!target) return json({ error: "Client not found" }, 404);
+        return await handleDocUpload(req, email, user.email);
+      }
+
+      m = path.match(/^\/api\/admin\/clients\/([^/]+)\/export$/);
+      if (m && method === "GET") {
+        return await handleClientExport(decodeURIComponent(m[1]).toLowerCase());
       }
 
       m = path.match(/^\/api\/admin\/clients\/([^/]+)\/questionnaire$/);

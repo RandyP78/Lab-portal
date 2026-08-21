@@ -258,7 +258,7 @@ export function UserDashboard() {
         <div className="dash-grid">
           <section className="card">
             <h3 className="card-title">Upload compliance documents</h3>
-            <p className="muted">Select or drag in several files at once · PDF or images work best (AI analysis) · 5 MB max per file</p>
+            <p className="muted">Select or drag in several files at once · All file types accepted (PDF, images, Word, Excel…) · PDFs and images also get AI analysis · 5 MB max per file</p>
             {docError && <div className="error-banner">{docError}</div>}
             {aiNotice && <div className="notice-banner">{aiNotice}</div>}
             <div

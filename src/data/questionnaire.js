@@ -23,6 +23,12 @@ export const STATE_NAMES = {
 // States that have their own additional forms in the system (beyond the federal CLIA forms)
 export const STATES_WITH_SPECIFIC_FORMS = ['CA', 'TX'];
 
+// New York is not offered — it runs its own permit program handled outside this portal
+export const SELECTABLE_STATES = US_STATES.filter((s) => s !== 'NY');
+export const NY_DISCLAIMER =
+  'Note: New York is not available here. NY operates its own clinical laboratory permit program ' +
+  '(NYSDOH CLEP) with separate applications and standards — contact us directly if you need New York licensing.';
+
 export const OWNERSHIP_TYPES = [
   { value: 'sole_proprietorship', label: 'Sole Proprietorship' },
   { value: 'general_partnership', label: 'General Partnership' },

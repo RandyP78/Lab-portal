@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES } from '../data/assessment';
+import { CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES, DOCUMENT_CATEGORIES } from '../data/assessment';
 import { QuestionnairePanel } from './QuestionnairePanel';
 import '../styles/admin.css';
 
@@ -238,6 +238,73 @@ export function AdminDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState('overview'); // 'overview' | 'forms'
   const [tool, setTool] = useState(null); // null | 'add' | 'import'
+  const [adminUploading, setAdminUploading] = useState(false);
+  const [adminUploadNote, setAdminUploadNote] = useState('');
+  const [adminDocCategory, setAdminDocCategory] = useState(DOCUMENT_CATEGORIES[0]);
+  const adminFileRef = React.useRef(null);
+
+  const exportCsv = () => {
+    const cols = ['Business', 'Contact First', 'Contact Last', 'Email', 'Phone', 'Lab Type', 'Status', 'Role', 'Readiness %', 'Documents', 'Registered'];
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = clients.map((c) => [
+      c.businessName, c.firstName, c.lastName, c.email, c.phone, c.labType,
+      c.status || 'New', c.role, c.readiness ?? '', c.documentCount ?? 0,
+      c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '',
+    ].map(esc).join(','));
+    const csv = [cols.map(esc).join(','), ...rows].join('\r\n');
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `clients-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const adminUploadFiles = async (fileList) => {
+    if (!selected) return;
+    const email = selected.client.email;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const tooBig = files.filter((f) => f.size > 5 * 1024 * 1024);
+    const ok = files.filter((f) => f.size <= 5 * 1024 * 1024);
+    setAdminUploadNote(tooBig.length ? `Skipped (over 5 MB): ${tooBig.map((f) => f.name).join(', ')}` : '');
+    if (!ok.length) return;
+    setAdminUploading(true);
+    const failed = [];
+    const uploadedIds = [];
+    for (let i = 0; i < ok.length; i++) {
+      const file = ok[i];
+      setAdminUploadNote(`Uploading ${i + 1}/${ok.length}: ${file.name}`);
+      try {
+        const dataBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const d = await api(`/api/admin/clients/${encodeURIComponent(email)}/documents`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: file.name,
+            category: adminDocCategory,
+            contentType: file.type || 'application/octet-stream',
+            dataBase64,
+          }),
+        });
+        uploadedIds.push(d.document.id);
+      } catch (err) {
+        failed.push(`${file.name} (${err.message || 'failed'})`);
+      }
+    }
+    // kick off AI analysis for each new document (PDFs/images; other types are stored as-is)
+    uploadedIds.forEach((id) => {
+      api(`/api/admin/clients/${encodeURIComponent(email)}/documents/${id}/analyze`, { method: 'POST' }).catch(() => {});
+    });
+    setAdminUploading(false);
+    setAdminUploadNote(failed.length ? `Failed: ${failed.join('; ')}` : `Uploaded ${uploadedIds.length} file(s).`);
+    openDetail(email);
+    loadClients();
+  };
 
   const loadClients = async () => {
     setLoading(true);
@@ -308,6 +375,7 @@ export function AdminDashboard() {
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
         <button className="link-button" onClick={loadClients}>Refresh</button>
+        <button className="link-button" onClick={exportCsv} disabled={!clients.length}>Export CSV</button>
         <span className="toolbar-spacer" />
         <button className="submit-button toolbar-action" onClick={() => setTool(tool === 'add' ? null : 'add')}>+ Add client</button>
         <button className="submit-button toolbar-action secondary" onClick={() => setTool(tool === 'import' ? null : 'import')}>Import questionnaire (OCR)</button>
@@ -386,6 +454,11 @@ export function AdminDashboard() {
               )}
               {detailTab === 'overview' && (
               <>
+              <p className="detail-actions">
+                <a className="link-button" href={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/export`}>
+                  ⬇ Download all client data (zip)
+                </a>
+              </p>
               <div className="detail-grid">
                 <div><span className="detail-label">Contact</span><span>{selected.client.firstName} {selected.client.lastName}</span></div>
                 <div><span className="detail-label">Email</span><span>{selected.client.email}</span></div>
@@ -436,6 +509,20 @@ export function AdminDashboard() {
               )}
 
               <h4>Documents ({selected.documents.length})</h4>
+              <div className="admin-upload-row">
+                <select value={adminDocCategory} onChange={(e) => setAdminDocCategory(e.target.value)}>
+                  {DOCUMENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input
+                  ref={adminFileRef} type="file" multiple style={{ display: 'none' }}
+                  onChange={(e) => { adminUploadFiles(e.target.files); e.target.value = ''; }}
+                />
+                <button className="link-button" disabled={adminUploading} onClick={() => adminFileRef.current?.click()}>
+                  {adminUploading ? 'Uploading…' : '+ Upload for this client'}
+                </button>
+              </div>
+              {adminUploadNote && <p className="muted small">{adminUploadNote}</p>}
+              <p className="muted small">Any file type — PDFs and images also get AI analysis; Word/Excel files are stored as-is.</p>
               {selected.documents.length === 0 && <p className="muted">None uploaded.</p>}
               {selected.documents.map((d) => (
                 <div className="doc-row" key={d.id}>
