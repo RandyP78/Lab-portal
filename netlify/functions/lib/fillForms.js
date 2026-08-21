@@ -76,13 +76,22 @@ export function buildPacket(q) {
   if (targets.includes("CA")) groups.push(labState === "CA" ? "ca_in_state" : "ca_out_of_state");
   if (targets.includes("TX")) groups.push("texas");
 
+  // Triage decides which paperwork stage applies; without triage, show everything
+  const appType = String(q?.triage?.applicationType || "").trim();
+  const stageFor = { initial: ["initial"], renewal: ["renewal"], changes: ["changes"], closure: ["changes"] }[appType] || null;
+  const keepForm = (g, f) => {
+    if (!stageFor) return true;
+    if (g === "federal") return true; // CMS forms travel with every filing type
+    return stageFor.includes(f.stage);
+  };
+
   const packet = groups.map((g) => ({
     group: g,
     name: g === "federal" && targets.length
       ? `Federal CLIA forms — required for every state (${targets.join(", ")})`
       : GROUP_NAMES[g],
-    forms: FORM_CATALOG.filter((f) => f.group === g).map(({ file, ...rest }) => rest),
-  }));
+    forms: FORM_CATALOG.filter((f) => f.group === g && keepForm(g, f)).map(({ file, ...rest }) => rest),
+  })).filter((grp) => grp.forms.length > 0 || grp.group === "federal");
 
   // States with no state-specific forms in the system yet — federal packet covers the filing
   const others = targets.filter((s) => s !== "CA" && s !== "TX");
@@ -100,6 +109,8 @@ export function buildPacket(q) {
 // ---------- canonical helpers ----------
 const S = (v) => (v == null ? "" : String(v).trim());
 const join = (parts, sep = " ") => parts.map(S).filter(Boolean).join(sep);
+// "n/a", "none", "-" etc. count as empty (stops "DBA n/a" showing up on forms)
+const scrub = (v) => (/^(n\/?\.?a\.?|none|no|-+)$/i.test(S(v)) ? "" : S(v));
 
 function helpers(q) {
   const lab = q.lab || {};
@@ -123,6 +134,10 @@ function helpers(q) {
 
   return {
     lab, mail, lic, dir, contact, owners, personnel, assistants, assocLabs, prep, hours,
+    dba: scrub(lab.dba),
+    appType: S(q.triage?.applicationType) || "initial",
+    triageMessage: S(q.triage?.message),
+    mailingDiffers: q.mailing?.sameAsPhysical === false,
     street, mailStreet,
     cityStZip: join([lab.city, lab.state, lab.zip], " "),
     mailCityStZip: join([mail.city, mail.state, mail.zip], " "),
@@ -156,7 +171,7 @@ const MAPS = {
   CMS116(q) {
     const h = helpers(q);
     const text = {
-      "FACILITY NAME": join([h.lab.name, h.lab.dba && `DBA ${h.lab.dba}`], " — "),
+      "FACILITY NAME": join([h.lab.name, h.dba && `DBA ${h.dba}`], " — "),
       "FEDERAL TAX IDENTIFICATION NUMBER": h.lab.ein,
       "TELEPHONE NO Include area code": h.lab.phone,
       "FAX NO Include area code": h.lab.fax,
@@ -165,8 +180,6 @@ const MAPS = {
       "CITY": h.lab.city,
       "STATE (2 letter abbreviation)": h.lab.state,
       "ZIP CODE": h.lab.zip,
-      "NUMBER STREET": h.mailStreet,
-      "CITY_2": h.mail.city, "STATE_2": h.mail.state, "ZIP CODE_2": h.mail.zip,
       "NAME OF DIRECTOR Last First Middle Initial": h.dirLastFirst,
       "Laboratory Directors Phone Number": h.dir.phone,
       "CREDENTIALS": h.dirCredentials,
@@ -174,7 +187,20 @@ const MAPS = {
       "Effective Date": h.lab.effectiveDate,
       "Anticipated Start Date": h.lab.effectiveDate,
       "TOTAL ESTIMATED ANNUAL TEST VOLUME": h.lab.testVolume,
+      // test menu: details go on attached pages
+      "ANALYTE / TEST ROW 1": "See attached",
+      // signature block (upper blank = director, lower blank = owner — the PDF's
+      // internal field names are swapped relative to the printed labels)
+      "PRINT NAME OF OWNER OF LABORATORY": h.dirFirstLast,
+      "PRINT NAME OF OWNER/DIRECTOR OF LABORATORY": h.owner.name,
     };
+    // mailing/billing block only when it actually differs from the facility address
+    if (h.mailingDiffers) {
+      text["NUMBER STREET"] = h.mailStreet;
+      text["CITY_2"] = h.mail.city;
+      text["STATE_2"] = h.mail.state;
+      text["ZIP CODE_2"] = h.mail.zip;
+    }
     for (const [key, day] of DAY_FIELDS) {
       const d = h.hours[key] || {};
       text[`${day} - From`] = d.from;
@@ -184,7 +210,11 @@ const MAPS = {
       text[`CLIA NUMBERRow${i + 1}`] = l.cliaNumber;
       text[i === 0 ? "NAME OF LABORATORY Row1" : `NAME OF LABORATORYRow${i + 1}`] = l.name;
     });
-    const check = ["Initial Application", "Physical", "Physical_2"];
+    const check = ["Physical", "Physical_2",
+      "If additional space is needed, check here and attach additional information using the same format 2"];
+    if (h.appType === "initial") check.push("Initial Application");
+    else if (h.appType === "changes" || h.appType === "closure") check.push("Other Changes Specify");
+    if (h.lab.email) check.push("Receive Future Notifications Via Email");
     const type = h.lic.certificateType;
     if (type === "waiver") check.push("Certificate of Waiver Complete Sections I  VI and IX  X");
     if (type === "ppm") check.push("Certificate for Provider Performed Microscopy Procedures PPM Complete Sections IVII and IXX");
@@ -217,23 +247,31 @@ const MAPS = {
       "CITY": h.lab.city, "STATE": h.lab.state, "ZIP CODE": h.lab.zip,
       "5 TELEPHONE INCLUDE AREA CODE": h.lab.phone,
       "Printed name of lab director": h.dirFirstLast,
+      "7  DATE": h.today,
+      "page1": "1",
+      "page2": "1",
     };
     const check = [];
+    // The GS column checkbox is misnamed on a few rows of the official PDF
+    const gsField = (n) => ({ 7: "CG1 row7", 15: "CG1 row15", 16: "CG row16", 17: "CG1 row17" }[n] || `GS1 row${n}`);
     // Row 1 = director, then testing personnel (a person can hold several roles)
-    const rows = [{ name: h.dirLastFirst, roles: ["D"] }].concat(
+    const rows = [{ name: h.dirLastFirst, roles: ["D"], codes: "" }].concat(
       h.personnel.map((p) => ({
         name: h.personName(p),
         roles: Array.isArray(p.roles) && p.roles.length ? p.roles : (p.role ? [p.role] : ["TP"]),
+        codes: S(p.specialtyCodes),
       }))
     );
-    rows.slice(0, 15).forEach((r, i) => {
+    rows.slice(0, 17).forEach((r, i) => {
       const n = i + 1;
       text[`EMPLOYEE NAMES ${n}`] = r.name;
       for (const role of r.roles) {
         if (role === "D") check.push(`D1 row${n}`);
-        else if (role === "GS") check.push(`CT/GS1  row${n}`);
-        else if (role === "TS") text[`TS1  row${n}`] = "X";
-        else if (role === "TC") text[`TC1  row${n}`] = "X";
+        else if (role === "CC") check.push(`CC1  row${n}`);
+        else if (role === "GS") check.push(gsField(n));
+        else if (role === "TP") check.push(`TP1 row${n}`);
+        else if (role === "TS") text[`TS1  row${n}`] = r.codes || "X";
+        else if (role === "TC") text[`TC1  row${n}`] = r.codes || "X";
       }
     });
     return { text, check };
@@ -281,7 +319,7 @@ const MAPS = {
   LAB1513(q) {
     const h = helpers(q);
     const text = {
-      "entity": h.lab.name, "dba": h.lab.dba,
+      "entity": h.lab.name, "dba": h.dba,
       "address": h.street, "city": h.lab.city, "state": h.lab.state, "zip": h.lab.zip,
       "clia": h.lic.cliaNumber, "taxid": h.lab.ein, "telephone": h.lab.phone,
       "authorizedrep": h.prep.name || h.owner.name, "title": h.prep.title,
@@ -335,19 +373,26 @@ const MAPS = {
 
   LAB193(q) {
     const h = helpers(q);
-    return { text: {
+    const text = {
       "Facility Name": h.lab.name,
       "Current Tax ID": h.lab.ein,
       "State Lab ID": h.lic.caStateId,
       "CLIA ID": h.lic.cliaNumber,
       "Email": h.lab.email,
-    } };
+    };
+    if (h.appType === "closure") {
+      text["Closing Reason"] = h.triageMessage || "Laboratory closure";
+      text["Closing Effective Date_af_date"] = h.lab.effectiveDate;
+    } else if (h.appType === "changes" && h.triageMessage) {
+      text["Other Changes (Specify)"] = h.triageMessage;
+    }
+    return { text };
   },
 
   "LAB144-OS"(q) {
     const h = helpers(q);
     const text = {
-      "Name of Laboratory": h.lab.name, "DBA": h.lab.dba,
+      "Name of Laboratory": h.lab.name, "DBA": h.dba,
       "TAX ID": h.lab.ein, "CLIA ID": h.lic.cliaNumber,
       "STATE ID": h.lic.caStateId, "EXPIRATION DATE": h.lic.caExpiration,
       "Physical Address: Number, Street": S(h.lab.address),
@@ -429,7 +474,7 @@ const MAPS = {
 function lab144Map(q, renewal) {
   const h = helpers(q);
   const text = {
-    "Name of Laboratory": h.lab.name, "DBA": h.lab.dba,
+    "Name of Laboratory": h.lab.name, "DBA": h.dba,
     "CLIA ID": h.lic.cliaNumber, "TAX ID": h.lab.ein,
     "Physical Address (Number, Street)": S(h.lab.address),
     "Physical Room, Suite": h.lab.suite,

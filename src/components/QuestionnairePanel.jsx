@@ -3,6 +3,7 @@ import {
   EMPTY_QUESTIONNAIRE, US_STATES, STATE_NAMES, STATES_WITH_SPECIFIC_FORMS, OWNERSHIP_TYPES,
   CERTIFICATE_TYPES, ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
   SELECTABLE_STATES, NY_DISCLAIMER,
+  TRIAGE_STATEMENT, COMPLEXITY_LEVELS, TRIAGE_QUESTIONS, APPLICATION_TYPE_LABELS,
 } from '../data/questionnaire';
 import '../styles/dashboard.css';
 
@@ -11,9 +12,10 @@ function mergeQ(saved) {
   const base = JSON.parse(JSON.stringify(EMPTY_QUESTIONNAIRE));
   if (!saved) return base;
   const merged = { ...base, ...saved };
-  for (const k of ['lab', 'mailing', 'ownership', 'license', 'director', 'contact', 'preparedBy']) {
+  for (const k of ['lab', 'mailing', 'ownership', 'license', 'director', 'contact', 'preparedBy', 'triage']) {
     merged[k] = { ...base[k], ...(saved[k] || {}) };
   }
+  merged.triage.answers = { ...(saved.triage?.answers || {}) };
   merged.lab.hours = { ...(saved.lab?.hours || {}) };
   for (const k of ['owners', 'personnel', 'assistants', 'associatedLabs', 'targetStates']) {
     merged[k] = Array.isArray(saved[k]) ? saved[k] : base[k];
@@ -85,6 +87,23 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
   };
   const removeRow = (listKey, idx) => setQ((prev) => ({ ...prev, [listKey]: prev[listKey].filter((_, i) => i !== idx) }));
 
+  // Triage: the first question answered "yes" (in order) decides the paperwork path;
+  // all "no" falls through to major-changes with the free-text message.
+  const deriveApplicationType = (answers) => {
+    for (const tq of TRIAGE_QUESTIONS) {
+      if (answers[tq.id] === 'yes') return tq.type;
+    }
+    return TRIAGE_QUESTIONS.every((tq) => answers[tq.id] === 'no') ? 'changes' : '';
+  };
+  const setTriageAnswer = (id, value) => {
+    setQ((prev) => {
+      const answers = { ...prev.triage.answers, [id]: value };
+      return { ...prev, triage: { ...prev.triage, answers, applicationType: deriveApplicationType(answers) } };
+    });
+  };
+  const triageType = q.triage.applicationType;
+  const triageDone = q.triage.accepted && q.lab.state && q.targetStates.length > 0 && q.triage.complexity && triageType;
+
   const toggleTargetState = (code) => {
     setQ((prev) => ({
       ...prev,
@@ -118,7 +137,16 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
       {notice && <div className="notice-banner">{notice}</div>}
 
       <section className="card">
-        <h3 className="card-title">Where is the lab licensing?</h3>
+        <h3 className="card-title">Start here</h3>
+
+        <label className="q-check q-accept">
+          <input
+            type="checkbox"
+            checked={q.triage.accepted}
+            onChange={(e) => set('triage.accepted', e.target.checked)}
+          />
+          <span><strong>{TRIAGE_STATEMENT}</strong> — I understand and accept.</span>
+        </label>
 
         <div className="q-grid" style={{ marginBottom: 14 }}>
           <Field label="What state is the laboratory located in?" wide>
@@ -145,8 +173,55 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
           ))}
         </div>
         <p className="muted small q-ny-disclaimer">{NY_DISCLAIMER}</p>
+
+        <h4 className="q-subhead">What is the highest complexity of assay being performed?</h4>
+        <div className="q-states">
+          {COMPLEXITY_LEVELS.map((c) => (
+            <label key={c} className={`q-state-pill ${q.triage.complexity === c ? 'on' : ''}`}>
+              <input type="radio" checked={q.triage.complexity === c} onChange={() => set('triage.complexity', c)} />
+              {c}
+            </label>
+          ))}
+        </div>
+
+        <h4 className="q-subhead">What are we filing?</h4>
+        {TRIAGE_QUESTIONS.map((tq) => (
+          <div className="q-triage-row" key={tq.id}>
+            <span className="q-triage-text">{tq.text}</span>
+            <span className="q-triage-buttons">
+              {['yes', 'no'].map((v) => (
+                <button
+                  key={v} type="button"
+                  className={`answer-button ${q.triage.answers[tq.id] === v ? 'selected' : ''}`}
+                  onClick={() => setTriageAnswer(tq.id, v)}
+                >
+                  {v === 'yes' ? 'Yes' : 'No'}
+                </button>
+              ))}
+            </span>
+          </div>
+        ))}
+        <label className="q-field q-wide" style={{ marginTop: 10 }}>
+          <span className="q-label">Please fill out all paperwork to the best of your ability and write a detailed message here:</span>
+          <textarea
+            rows={3}
+            value={q.triage.message}
+            onChange={(e) => set('triage.message', e.target.value)}
+            placeholder="Anything we should know — what's changing, special circumstances, timing…"
+          />
+        </label>
+        {triageType && (
+          <p className="q-triage-result">→ {APPLICATION_TYPE_LABELS[triageType]}</p>
+        )}
       </section>
 
+      {!triageDone && (
+        <section className="card">
+          <p className="muted">Answer everything in "Start here" (accept the statement, pick your states and complexity, and answer the yes/no questions) — the rest of the questionnaire opens up from there.</p>
+        </section>
+      )}
+
+      {triageDone && (<>
       <section className="card">
         <h3 className="card-title">Laboratory</h3>
         <div className="q-grid">
@@ -353,6 +428,14 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
             </span>
             <input type="text" placeholder="License type" value={p.licenseType} onChange={(e) => setRow('personnel', i, 'licenseType', e.target.value)} />
             <input type="text" placeholder="License #" value={p.licenseNumber} onChange={(e) => setRow('personnel', i, 'licenseNumber', e.target.value)} />
+            {(personRoles(p).includes('TS') || personRoles(p).includes('TC')) && (
+              <input
+                type="text" className="q-specialty" placeholder="TS/TC specialty #s (e.g. 1, 3, 5)"
+                title="Specialty/subspecialty numbers for the TS and TC columns on CMS-209"
+                value={p.specialtyCodes || ''}
+                onChange={(e) => setRow('personnel', i, 'specialtyCodes', e.target.value)}
+              />
+            )}
             <button type="button" className="link-button danger small" onClick={() => removeRow('personnel', i)}>×</button>
           </div>
         ))}
@@ -404,6 +487,7 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
           <Field label="Title">{txt('preparedBy.title', q.preparedBy.title)}</Field>
         </div>
       </section>
+      </>)}
 
       <div className="save-bar">
         <span className="muted small">{savedAt && `Saved ${new Date(savedAt).toLocaleString()}`}</span>

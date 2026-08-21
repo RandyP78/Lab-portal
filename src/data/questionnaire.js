@@ -58,10 +58,32 @@ export const ACCREDITING_ORGS = ['COLA', 'CAP', 'TJC', 'AABB', 'A2LA', 'ACHC', '
 
 export const PERSONNEL_ROLES = [
   { value: 'GS', label: 'General Supervisor (GS)' },
-  { value: 'TS', label: 'Technical Supervisor / Consultant (TS)' },
+  { value: 'TS', label: 'Technical Supervisor (TS)' },
   { value: 'TC', label: 'Technical Consultant (TC)' },
+  { value: 'CC', label: 'Clinical Consultant (CC)' },
   { value: 'TP', label: 'Testing Personnel (TP)' },
 ];
+
+// ---- intake triage (start of the License Forms flow) ----
+export const TRIAGE_STATEMENT =
+  'This service is for an Independent Proprietary U.S. owned single-location laboratory.';
+
+export const COMPLEXITY_LEVELS = ['Waived', 'Moderate', 'High'];
+
+export const TRIAGE_QUESTIONS = [
+  { id: 'initial', text: 'Is this for an initial application?', type: 'initial', label: 'Initial Application Set Up' },
+  { id: 'renewal', text: 'Is this for a renewal with no changes?', type: 'renewal', label: 'Renewal paperwork' },
+  { id: 'runningChange', text: 'Is the laboratory currently running patients on site and making a change other than DIRECTOR or TEST MENU?', type: 'changes', label: 'Major changes paperwork' },
+  { id: 'pausedChange', text: 'Is the laboratory currently NOT running patients due to changing test menu OR director change and expects to resume testing after the change?', type: 'changes', label: 'Major changes paperwork' },
+  { id: 'closure', text: 'Is the laboratory submitting for closure?', type: 'closure', label: 'Closure paperwork' },
+];
+
+export const APPLICATION_TYPE_LABELS = {
+  initial: 'Initial Application Set Up',
+  renewal: 'Renewal paperwork',
+  changes: 'Major changes paperwork',
+  closure: 'Closure paperwork',
+};
 
 export const DAYS = [
   { key: 'mon', label: 'Mon' }, { key: 'tue', label: 'Tue' }, { key: 'wed', label: 'Wed' },
@@ -74,6 +96,7 @@ export const DIRECTOR_LICENSE_TYPES = [
 ];
 
 export const EMPTY_QUESTIONNAIRE = {
+  triage: { accepted: false, complexity: '', answers: {}, applicationType: '', message: '' },
   targetStates: [],
   lab: {
     name: '', dba: '', address: '', suite: '', city: '', state: '', zip: '', county: '',
@@ -93,7 +116,7 @@ export const EMPTY_QUESTIONNAIRE = {
     associationDate: '', hoursPerWeek: '',
   },
   contact: { name: '', phone: '', email: '' },
-  personnel: [{ firstName: '', middleInitial: '', lastName: '', roles: ['TP'], licenseType: '', licenseNumber: '' }],
+  personnel: [{ firstName: '', middleInitial: '', lastName: '', roles: ['TP'], licenseType: '', licenseNumber: '', specialtyCodes: '' }],
   assistants: [],
   associatedLabs: [],
   preparedBy: { name: '', title: '' },

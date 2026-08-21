@@ -430,3 +430,20 @@
 }
 .q-role-checks label.on { border-color: #0F6E56; background: #d9efe7; color: #0F6E56; }
 .q-role-checks input { margin: 0; }
+
+/* intake triage */
+.q-accept { align-items: flex-start; padding: 10px 12px; background: #f4f7f6; border: 1px solid #d9e6e1; border-radius: 8px; }
+.q-accept input { margin-top: 3px; }
+.q-triage-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px;
+  padding: 9px 0; border-bottom: 1px solid #f0f0f5;
+}
+.q-triage-text { font-size: 14px; color: #333; }
+.q-triage-buttons { display: flex; gap: 6px; flex-shrink: 0; }
+.q-triage-result { margin-top: 12px; font-weight: 700; color: #0F6E56; font-size: 15px; }
+.q-field textarea {
+  padding: 8px 10px; border: 1px solid #d5d5de; border-radius: 6px;
+  font-size: 14px; font-family: inherit; resize: vertical;
+}
+.q-specialty { min-width: 170px; }
+@media (max-width: 700px) { .q-triage-row { flex-direction: column; align-items: flex-start; } }
