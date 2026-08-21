@@ -1,6 +1,7 @@
 // Lab Compliance Portal — unified API (Netlify Functions v2 + Netlify Blobs)
 import { getStore } from "@netlify/blobs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { buildPacket, fillFormPdf, FORM_CATALOG } from "./lib/fillForms.js";
 
 const SESSION_DAYS = 7;
 const MAX_DOC_BYTES = 5 * 1024 * 1024; // 5 MB per document
@@ -507,6 +508,45 @@ async function attachAnalyses(email, docs) {
   return out;
 }
 
+// ---------- licensing questionnaire + state form auto-fill ----------
+const QUESTIONNAIRE_MAX_BYTES = 200 * 1024;
+
+async function handleQuestionnaireGet(email) {
+  const data = await store().get(`questionnaire:${email}`, { type: "json" });
+  return json({ questionnaire: data || null, packet: buildPacket(data || {}) });
+}
+
+async function handleQuestionnairePut(req, email) {
+  let body;
+  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const data = body?.questionnaire;
+  if (!data || typeof data !== "object") return json({ error: "questionnaire object required" }, 400);
+  if (JSON.stringify(data).length > QUESTIONNAIRE_MAX_BYTES) return json({ error: "Questionnaire too large" }, 413);
+  const record = { ...data, updatedAt: new Date().toISOString() };
+  await store().setJSON(`questionnaire:${email}`, record);
+  return json({ questionnaire: record, packet: buildPacket(record) });
+}
+
+async function handleFormDownload(email, formId) {
+  if (!FORM_CATALOG.some((f) => f.id === formId)) return json({ error: "Unknown form" }, 404);
+  const q = await store().get(`questionnaire:${email}`, { type: "json" });
+  if (!q) return json({ error: "Fill out the licensing questionnaire first — the forms are generated from it." }, 400);
+  let result;
+  try {
+    result = await fillFormPdf(formId, q);
+  } catch (err) {
+    console.error("Form fill error:", formId, err);
+    return json({ error: "Could not generate this form. Please try again." }, 500);
+  }
+  return new Response(result.bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="FILLED-${result.filename.replace(/"/g, "")}"`,
+    },
+  });
+}
+
 const ALLOWED_STATUSES = ["New", "Onboarding", "In Review", "Inspection Ready", "On Hold"];
 
 async function handleAdminClientPatch(req, email) {
@@ -573,6 +613,14 @@ export default async function handler(req) {
 
     if (path === "/api/gaps" && method === "GET") return json({ gaps: await computeGaps(user.email) });
 
+    // licensing questionnaire + auto-filled state forms
+    if (path === "/api/questionnaire") {
+      if (method === "GET") return await handleQuestionnaireGet(user.email);
+      if (method === "PUT") return await handleQuestionnairePut(req, user.email);
+    }
+    m = path.match(/^\/api\/forms\/([A-Za-z0-9-]+)\/download$/);
+    if (m && method === "GET") return await handleFormDownload(user.email, m[1]);
+
     if (path === "/api/checkout" && method === "POST") return handleCheckoutStub();
 
     // admin routes
@@ -596,6 +644,18 @@ export default async function handler(req) {
       m = path.match(/^\/api\/admin\/clients\/([^/]+)\/documents\/([a-f0-9]{16})\/analyze$/);
       if (m && method === "POST") {
         return await handleDocAnalyze(decodeURIComponent(m[1]).toLowerCase(), m[2]);
+      }
+
+      m = path.match(/^\/api\/admin\/clients\/([^/]+)\/questionnaire$/);
+      if (m) {
+        const email = decodeURIComponent(m[1]).toLowerCase();
+        if (method === "GET") return await handleQuestionnaireGet(email);
+        if (method === "PUT") return await handleQuestionnairePut(req, email);
+      }
+
+      m = path.match(/^\/api\/admin\/clients\/([^/]+)\/forms\/([A-Za-z0-9-]+)\/download$/);
+      if (m && method === "GET") {
+        return await handleFormDownload(decodeURIComponent(m[1]).toLowerCase(), m[2]);
       }
     }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORIES, ANSWER_OPTIONS, DOCUMENT_CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES } from '../data/assessment';
+import { QuestionnairePanel } from './QuestionnairePanel';
 import '../styles/dashboard.css';
 
 function ScoreRing({ value }) {
@@ -44,6 +45,8 @@ export function UserDashboard() {
   const [documents, setDocuments] = useState([]);
   const [docCategory, setDocCategory] = useState(DOCUMENT_CATEGORIES[0]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null); // { done, total, current }
+  const [dragOver, setDragOver] = useState(false);
   const [docError, setDocError] = useState('');
   const [analyzing, setAnalyzing] = useState({});
   const [aiNotice, setAiNotice] = useState('');
@@ -102,39 +105,59 @@ export function UserDashboard() {
     }
   };
 
-  const onFileChosen = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setDocError('File exceeds the 5 MB limit');
-      return;
-    }
-    setUploading(true);
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
     setDocError('');
-    try {
-      const dataBase64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const d = await api('/api/documents', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: file.name,
-          category: docCategory,
-          contentType: file.type || 'application/octet-stream',
-          dataBase64,
-        }),
-      });
-      setDocuments((prev) => [d.document, ...prev]);
-      analyzeDoc(d.document.id); // kick off AI analysis automatically
-    } catch (err) {
-      setDocError(err.message || 'Upload failed');
-    } finally {
-      setUploading(false);
+    const tooBig = files.filter((f) => f.size > 5 * 1024 * 1024);
+    const ok = files.filter((f) => f.size <= 5 * 1024 * 1024);
+    if (tooBig.length) {
+      setDocError(`Skipped (over the 5 MB limit): ${tooBig.map((f) => f.name).join(', ')}`);
     }
+    if (!ok.length) return;
+    setUploading(true);
+    setUploadProgress({ done: 0, total: ok.length, current: ok[0].name });
+    const failed = [];
+    for (let i = 0; i < ok.length; i++) {
+      const file = ok[i];
+      setUploadProgress({ done: i, total: ok.length, current: file.name });
+      try {
+        const dataBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const d = await api('/api/documents', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: file.name,
+            category: docCategory,
+            contentType: file.type || 'application/octet-stream',
+            dataBase64,
+          }),
+        });
+        setDocuments((prev) => [d.document, ...prev]);
+        analyzeDoc(d.document.id); // kick off AI analysis automatically
+      } catch (err) {
+        failed.push(`${file.name} (${err.message || 'upload failed'})`);
+      }
+    }
+    setUploadProgress(null);
+    setUploading(false);
+    if (failed.length) setDocError(`Failed to upload: ${failed.join('; ')}`);
+  };
+
+  const onFileChosen = (e) => {
+    const files = e.target.files;
+    uploadFiles(files);
+    e.target.value = '';
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    uploadFiles(e.dataTransfer?.files);
   };
 
   const deleteDoc = async (id) => {
@@ -163,6 +186,7 @@ export function UserDashboard() {
       <nav className="dash-tabs">
         <button className={tab === 'assessment' ? 'active' : ''} onClick={() => setTab('assessment')}>Readiness Assessment</button>
         <button className={tab === 'documents' ? 'active' : ''} onClick={() => setTab('documents')}>Documents</button>
+        <button className={tab === 'forms' ? 'active' : ''} onClick={() => setTab('forms')}>License Forms</button>
         <button className={tab === 'gaps' ? 'active' : ''} onClick={() => { setTab('gaps'); refreshGaps(); }}>
           Compliance Gaps{gaps && gaps.counts.missing + gaps.counts.expired > 0 ? ` (${gaps.counts.missing + gaps.counts.expired})` : ''}
         </button>
@@ -233,18 +257,30 @@ export function UserDashboard() {
       {tab === 'documents' && (
         <div className="dash-grid">
           <section className="card">
-            <h3 className="card-title">Upload a compliance document</h3>
-            <p className="muted">PDF or images work best (AI analysis) · 5 MB max per file</p>
+            <h3 className="card-title">Upload compliance documents</h3>
+            <p className="muted">Select or drag in several files at once · PDF or images work best (AI analysis) · 5 MB max per file</p>
             {docError && <div className="error-banner">{docError}</div>}
             {aiNotice && <div className="notice-banner">{aiNotice}</div>}
-            <div className="upload-row">
-              <select value={docCategory} onChange={(e) => setDocCategory(e.target.value)}>
-                {DOCUMENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={onFileChosen} />
-              <button className="submit-button upload-button" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-                {uploading ? 'Uploading…' : 'Choose File & Upload'}
-              </button>
+            <div
+              className={`upload-dropzone${dragOver ? ' drag-over' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+            >
+              <div className="upload-row">
+                <select value={docCategory} onChange={(e) => setDocCategory(e.target.value)}>
+                  {DOCUMENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input ref={fileInputRef} type="file" multiple style={{ display: 'none' }} onChange={onFileChosen} />
+                <button className="submit-button upload-button" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                  {uploading && uploadProgress
+                    ? `Uploading ${uploadProgress.done + 1}/${uploadProgress.total}…`
+                    : 'Choose Files & Upload'}
+                </button>
+              </div>
+              <p className="muted small upload-hint">
+                {uploading && uploadProgress ? `Uploading ${uploadProgress.current}` : '…or drag and drop files anywhere in this box'}
+              </p>
             </div>
           </section>
 
@@ -282,6 +318,24 @@ export function UserDashboard() {
               </div>
             ))}
           </section>
+        </div>
+      )}
+
+      {tab === 'forms' && (
+        <div className="dash-grid">
+          <section className="card">
+            <h3 className="card-title">State licensing forms</h3>
+            <p className="muted">
+              Fill out this questionnaire once — we generate the right application forms for every state you operate in,
+              pre-filled with your answers. The same information lands in the right box on each form even when states
+              word things differently (one state's "facility" is another's "laboratory").
+            </p>
+          </section>
+          <QuestionnairePanel
+            api={api}
+            questionnairePath="/api/questionnaire"
+            formDownloadPath="/api/forms"
+          />
         </div>
       )}
 

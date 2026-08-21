@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORIES, REQUIRED_DOC_NAMES, GAP_CATEGORY_NAMES } from '../data/assessment';
+import { QuestionnairePanel } from './QuestionnairePanel';
 import '../styles/admin.css';
 
 const STATUSES = ['New', 'Onboarding', 'In Review', 'Inspection Ready', 'On Hold'];
@@ -19,6 +20,7 @@ export function AdminDashboard() {
   const [filter, setFilter] = useState('All');
   const [selected, setSelected] = useState(null); // { client, assessment, documents }
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailTab, setDetailTab] = useState('overview'); // 'overview' | 'forms'
 
   const loadClients = async () => {
     setLoading(true);
@@ -134,6 +136,20 @@ export function AdminDashboard() {
           {!detailLoading && selected && (
             <>
               <h3>{selected.client.businessName}</h3>
+              <nav className="dash-tabs detail-tabs">
+                <button className={detailTab === 'overview' ? 'active' : ''} onClick={() => setDetailTab('overview')}>Overview</button>
+                <button className={detailTab === 'forms' ? 'active' : ''} onClick={() => setDetailTab('forms')}>License Forms</button>
+              </nav>
+              {detailTab === 'forms' && (
+                <QuestionnairePanel
+                  api={api}
+                  questionnairePath={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/questionnaire`}
+                  formDownloadPath={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/forms`}
+                  compact
+                />
+              )}
+              {detailTab === 'overview' && (
+              <>
               <div className="detail-grid">
                 <div><span className="detail-label">Contact</span><span>{selected.client.firstName} {selected.client.lastName}</span></div>
                 <div><span className="detail-label">Email</span><span>{selected.client.email}</span></div>
@@ -201,6 +217,8 @@ export function AdminDashboard() {
                   <a className="link-button" href={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/documents/${d.id}/download`}>Download</a>
                 </div>
               ))}
+              </>
+              )}
             </>
           )}
         </aside>

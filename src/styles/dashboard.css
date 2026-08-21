@@ -330,3 +330,62 @@
   .question-row { flex-direction: column; align-items: flex-start; }
   .score-card { flex-direction: column; }
 }
+
+/* ---------- licensing questionnaire + form packet ---------- */
+.q-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px 14px;
+  margin-top: 8px;
+}
+.q-field { display: flex; flex-direction: column; gap: 4px; }
+.q-wide { grid-column: span 2; }
+.q-label { font-size: 12px; font-weight: 600; color: #666; }
+.q-field input, .q-field select, .q-person-row input, .q-person-row select, .q-hours-day input {
+  padding: 8px 10px;
+  border: 1px solid #d5d5de;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+.q-field input:focus, .q-field select:focus, .q-person-row input:focus { outline: 2px solid #0F6E5633; border-color: #0F6E56; }
+
+.q-subhead { margin: 18px 0 8px; font-size: 14px; color: #444; }
+.q-check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #444; margin: 6px 0; }
+
+.q-states { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.q-state-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border: 1.5px solid #d5d5de; border-radius: 999px;
+  font-size: 14px; cursor: pointer; user-select: none; background: #fff;
+}
+.q-state-pill.on { border-color: #0F6E56; background: #d9efe7; color: #0F6E56; font-weight: 600; }
+
+.q-hours { display: flex; flex-wrap: wrap; gap: 10px; }
+.q-hours-day { display: flex; flex-direction: column; gap: 4px; width: 110px; }
+.q-hours-day input { width: 100%; box-sizing: border-box; }
+
+.q-person-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+.q-person-row input, .q-person-row select { flex: 1; min-width: 90px; }
+.q-person-row .q-mi { flex: 0 0 44px; min-width: 44px; }
+.q-assistant-row input { min-width: 140px; }
+.q-assoc-row input { min-width: 160px; }
+
+.q-row-block { border: 1px solid #ececf2; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.q-packet-group { margin-bottom: 14px; }
+
+/* bulk upload dropzone */
+.upload-dropzone {
+  border: 2px dashed #d5d5de;
+  border-radius: 10px;
+  padding: 16px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.upload-dropzone.drag-over { border-color: #0F6E56; background: #d9efe733; }
+.upload-hint { margin: 10px 0 0; text-align: center; }
+
+/* admin detail tabs */
+.detail-tabs { margin: 10px 0 14px; }
+.q-compact .q-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.q-compact .card { padding: 14px; margin-bottom: 12px; }

@@ -3,6 +3,9 @@
   functions = "netlify/functions"
   publish = "dist"
 
+[functions]
+  included_files = ["netlify/functions/forms-blank/*.pdf"]
+
 [dev]
   command = "npm run dev"
   functions = "netlify/functions"

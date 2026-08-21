@@ -1,0 +1,400 @@
+import React, { useEffect, useState } from 'react';
+import {
+  EMPTY_QUESTIONNAIRE, US_STATES, TARGET_STATES, OWNERSHIP_TYPES, CERTIFICATE_TYPES,
+  ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
+} from '../data/questionnaire';
+import '../styles/dashboard.css';
+
+// Deep-merge saved data over the empty template so new fields never break old saves
+function mergeQ(saved) {
+  const base = JSON.parse(JSON.stringify(EMPTY_QUESTIONNAIRE));
+  if (!saved) return base;
+  const merged = { ...base, ...saved };
+  for (const k of ['lab', 'mailing', 'ownership', 'license', 'director', 'contact', 'preparedBy']) {
+    merged[k] = { ...base[k], ...(saved[k] || {}) };
+  }
+  merged.lab.hours = { ...(saved.lab?.hours || {}) };
+  for (const k of ['owners', 'personnel', 'assistants', 'associatedLabs', 'targetStates']) {
+    merged[k] = Array.isArray(saved[k]) ? saved[k] : base[k];
+  }
+  return merged;
+}
+
+function Field({ label, children, wide }) {
+  return (
+    <label className={`q-field${wide ? ' q-wide' : ''}`}>
+      <span className="q-label">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, compact }) {
+  const [q, setQ] = useState(null);
+  const [packet, setPacket] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    setQ(null);
+    api(questionnairePath)
+      .then((d) => {
+        setQ(mergeQ(d.questionnaire));
+        setPacket(d.packet || []);
+        setSavedAt(d.questionnaire?.updatedAt || null);
+      })
+      .catch((err) => { setQ(mergeQ(null)); setError(err.message || 'Could not load questionnaire'); });
+  }, [api, questionnairePath]);
+
+  if (!q) return <p className="muted">Loading questionnaire…</p>;
+
+  const set = (path, value) => {
+    setQ((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const keys = path.split('.');
+      let node = next;
+      for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]];
+      node[keys[keys.length - 1]] = value;
+      return next;
+    });
+  };
+
+  const setRow = (listKey, idx, field, value) => {
+    setQ((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      next[listKey][idx][field] = value;
+      return next;
+    });
+  };
+  const addRow = (listKey, template) => setQ((prev) => ({ ...prev, [listKey]: [...prev[listKey], { ...template }] }));
+  const removeRow = (listKey, idx) => setQ((prev) => ({ ...prev, [listKey]: prev[listKey].filter((_, i) => i !== idx) }));
+
+  const toggleState = (code) => {
+    setQ((prev) => ({
+      ...prev,
+      targetStates: prev.targetStates.includes(code)
+        ? prev.targetStates.filter((s) => s !== code)
+        : [...prev.targetStates, code],
+    }));
+  };
+
+  const save = async () => {
+    setSaving(true); setError(''); setNotice('');
+    try {
+      const d = await api(questionnairePath, { method: 'PUT', body: JSON.stringify({ questionnaire: q }) });
+      setPacket(d.packet || []);
+      setSavedAt(d.questionnaire?.updatedAt || null);
+      setNotice('Saved — your form packet below is ready to download.');
+    } catch (err) {
+      setError(err.message || 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const txt = (path, value, props = {}) => (
+    <input type="text" value={value} onChange={(e) => set(path, e.target.value)} {...props} />
+  );
+
+  return (
+    <div className={compact ? 'q-compact' : ''}>
+      {error && <div className="error-banner">{error}</div>}
+      {notice && <div className="notice-banner">{notice}</div>}
+
+      <section className="card">
+        <h3 className="card-title">Where is the lab licensing?</h3>
+        <p className="muted">Every lab files the federal CLIA forms. Pick each state you're applying to operate in — the packet adjusts to your lab's location (e.g. a lab outside California serving CA patients uses the out-of-state forms).</p>
+        <div className="q-states">
+          {TARGET_STATES.map((s) => (
+            <label key={s.code} className={`q-state-pill ${q.targetStates.includes(s.code) ? 'on' : ''}`}>
+              <input type="checkbox" checked={q.targetStates.includes(s.code)} onChange={() => toggleState(s.code)} />
+              {s.name}
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Laboratory</h3>
+        <div className="q-grid">
+          <Field label="Legal name" wide>{txt('lab.name', q.lab.name)}</Field>
+          <Field label="DBA (doing business as)">{txt('lab.dba', q.lab.dba)}</Field>
+          <Field label="Ownership type">
+            <select value={q.ownership.type} onChange={(e) => set('ownership.type', e.target.value)}>
+              <option value="">Select…</option>
+              {OWNERSHIP_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </Field>
+          {q.ownership.type === 'other' && (
+            <Field label="Ownership — describe">{txt('ownership.otherText', q.ownership.otherText)}</Field>
+          )}
+          <Field label="Street address" wide>{txt('lab.address', q.lab.address)}</Field>
+          <Field label="Suite / room">{txt('lab.suite', q.lab.suite)}</Field>
+          <Field label="City">{txt('lab.city', q.lab.city)}</Field>
+          <Field label="State">
+            <select value={q.lab.state} onChange={(e) => set('lab.state', e.target.value)}>
+              <option value="">—</option>
+              {US_STATES.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="ZIP">{txt('lab.zip', q.lab.zip)}</Field>
+          {q.targetStates.includes('TX') && (
+            <Field label="County (Texas)">{txt('lab.county', q.lab.county)}</Field>
+          )}
+          <Field label="Phone">{txt('lab.phone', q.lab.phone)}</Field>
+          <Field label="Fax">{txt('lab.fax', q.lab.fax)}</Field>
+          <Field label="Email">{txt('lab.email', q.lab.email)}</Field>
+          <Field label="Effective / anticipated start date">
+            <input type="date" value={q.lab.effectiveDate} onChange={(e) => set('lab.effectiveDate', e.target.value)} />
+          </Field>
+          <Field label="EIN / Federal Tax ID">{txt('lab.ein', q.lab.ein)}</Field>
+          <Field label="Estimated annual test volume">{txt('lab.testVolume', q.lab.testVolume)}</Field>
+        </div>
+        <h4 className="q-subhead">Hours of operation</h4>
+        <div className="q-hours">
+          {DAYS.map((d) => (
+            <div className="q-hours-day" key={d.key}>
+              <span className="q-label">{d.label}</span>
+              <input type="text" placeholder="From" value={q.lab.hours[d.key]?.from || ''}
+                onChange={(e) => set(`lab.hours.${d.key}`, { ...(q.lab.hours[d.key] || {}), from: e.target.value })} />
+              <input type="text" placeholder="To" value={q.lab.hours[d.key]?.to || ''}
+                onChange={(e) => set(`lab.hours.${d.key}`, { ...(q.lab.hours[d.key] || {}), to: e.target.value })} />
+            </div>
+          ))}
+        </div>
+        <h4 className="q-subhead">Mailing address</h4>
+        <label className="q-check">
+          <input type="checkbox" checked={q.mailing.sameAsPhysical}
+            onChange={(e) => set('mailing.sameAsPhysical', e.target.checked)} />
+          Same as physical address
+        </label>
+        {!q.mailing.sameAsPhysical && (
+          <div className="q-grid">
+            <Field label="Street address" wide>{txt('mailing.address', q.mailing.address)}</Field>
+            <Field label="Suite / room">{txt('mailing.suite', q.mailing.suite)}</Field>
+            <Field label="City">{txt('mailing.city', q.mailing.city)}</Field>
+            <Field label="State">
+              <select value={q.mailing.state} onChange={(e) => set('mailing.state', e.target.value)}>
+                <option value="">—</option>
+                {US_STATES.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="ZIP">{txt('mailing.zip', q.mailing.zip)}</Field>
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Licenses &amp; certificates</h3>
+        <div className="q-grid">
+          <Field label="CLIA number">{txt('license.cliaNumber', q.license.cliaNumber)}</Field>
+          <Field label="CLIA expiration">
+            <input type="date" value={q.license.cliaExpiration} onChange={(e) => set('license.cliaExpiration', e.target.value)} />
+          </Field>
+          <Field label="CLIA certificate type" wide>
+            <select value={q.license.certificateType} onChange={(e) => set('license.certificateType', e.target.value)}>
+              <option value="">Select…</option>
+              {CERTIFICATE_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </Field>
+          {q.license.certificateType === 'accreditation' && (
+            <>
+              <Field label="Accrediting organization">
+                <select value={q.license.accreditingOrg} onChange={(e) => set('license.accreditingOrg', e.target.value)}>
+                  <option value="">Select…</option>
+                  {ACCREDITING_ORGS.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </Field>
+              {q.license.accreditingOrg === 'COLA' && (
+                <Field label="COLA number">{txt('license.colaNumber', q.license.colaNumber)}</Field>
+              )}
+            </>
+          )}
+          {q.targetStates.includes('CA') && (
+            <>
+              <Field label="CA state lab ID (if issued)">{txt('license.caStateId', q.license.caStateId)}</Field>
+              <Field label="CA license expiration">
+                <input type="date" value={q.license.caExpiration} onChange={(e) => set('license.caExpiration', e.target.value)} />
+              </Field>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Owners</h3>
+        <p className="muted">List each owner (individual or company) and their share.</p>
+        {q.owners.map((o, i) => (
+          <div className="q-row-block" key={i}>
+            <div className="q-grid">
+              <Field label={`Owner ${i + 1} — name`} wide>
+                <input type="text" value={o.name} onChange={(e) => setRow('owners', i, 'name', e.target.value)} />
+              </Field>
+              <Field label="Title"><input type="text" value={o.title || ''} onChange={(e) => setRow('owners', i, 'title', e.target.value)} /></Field>
+              <Field label="Tax ID / SSN"><input type="text" value={o.taxId} onChange={(e) => setRow('owners', i, 'taxId', e.target.value)} /></Field>
+              <Field label="% owned"><input type="text" value={o.percent} onChange={(e) => setRow('owners', i, 'percent', e.target.value)} /></Field>
+              <Field label="Street address" wide><input type="text" value={o.address} onChange={(e) => setRow('owners', i, 'address', e.target.value)} /></Field>
+              <Field label="City"><input type="text" value={o.city} onChange={(e) => setRow('owners', i, 'city', e.target.value)} /></Field>
+              <Field label="State">
+                <select value={o.state} onChange={(e) => setRow('owners', i, 'state', e.target.value)}>
+                  <option value="">—</option>
+                  {US_STATES.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </Field>
+              <Field label="ZIP"><input type="text" value={o.zip} onChange={(e) => setRow('owners', i, 'zip', e.target.value)} /></Field>
+              <Field label="Phone"><input type="text" value={o.phone} onChange={(e) => setRow('owners', i, 'phone', e.target.value)} /></Field>
+            </div>
+            {q.owners.length > 1 && (
+              <button type="button" className="link-button danger small" onClick={() => removeRow('owners', i)}>Remove owner</button>
+            )}
+          </div>
+        ))}
+        {q.owners.length < 5 && (
+          <button type="button" className="link-button" onClick={() => addRow('owners', { name: '', taxId: '', percent: '', address: '', city: '', state: '', zip: '', phone: '', title: '' })}>
+            + Add owner
+          </button>
+        )}
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Laboratory director</h3>
+        <div className="q-grid">
+          <Field label="First name">{txt('director.firstName', q.director.firstName)}</Field>
+          <Field label="Middle initial">{txt('director.middleInitial', q.director.middleInitial, { maxLength: 2 })}</Field>
+          <Field label="Last name">{txt('director.lastName', q.director.lastName)}</Field>
+          <Field label="Titles (MD, PhD…)">{txt('director.titles', q.director.titles)}</Field>
+          <Field label="License type">
+            <select value={q.director.licenseType} onChange={(e) => set('director.licenseType', e.target.value)}>
+              <option value="">Select…</option>
+              {DIRECTOR_LICENSE_TYPES.map((t) => <option key={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="License number">{txt('director.licenseNumber', q.director.licenseNumber)}</Field>
+          <Field label="License expiration">
+            <input type="date" value={q.director.licenseExpiration} onChange={(e) => set('director.licenseExpiration', e.target.value)} />
+          </Field>
+          <Field label="Issuing board / agency">{txt('director.licenseIssuer', q.director.licenseIssuer)}</Field>
+          <Field label="Phone">{txt('director.phone', q.director.phone)}</Field>
+          <Field label="Email">{txt('director.email', q.director.email)}</Field>
+          <Field label="Street address" wide>{txt('director.address', q.director.address)}</Field>
+          <Field label="City">{txt('director.city', q.director.city)}</Field>
+          <Field label="State">
+            <select value={q.director.state} onChange={(e) => set('director.state', e.target.value)}>
+              <option value="">—</option>
+              {US_STATES.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="ZIP">{txt('director.zip', q.director.zip)}</Field>
+          <Field label="Association date (started with lab)">
+            <input type="date" value={q.director.associationDate} onChange={(e) => set('director.associationDate', e.target.value)} />
+          </Field>
+          <Field label="Hours per week on site">{txt('director.hoursPerWeek', q.director.hoursPerWeek)}</Field>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Primary contact</h3>
+        <div className="q-grid">
+          <Field label="Name">{txt('contact.name', q.contact.name)}</Field>
+          <Field label="Phone">{txt('contact.phone', q.contact.phone)}</Field>
+          <Field label="Email">{txt('contact.email', q.contact.email)}</Field>
+        </div>
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Testing personnel</h3>
+        <p className="muted">Supervisors and testing staff (GS / TS / TC / TP) with their licenses.</p>
+        {q.personnel.map((p, i) => (
+          <div className="q-person-row" key={i}>
+            <input type="text" placeholder="First" value={p.firstName} onChange={(e) => setRow('personnel', i, 'firstName', e.target.value)} />
+            <input type="text" placeholder="MI" maxLength={2} className="q-mi" value={p.middleInitial} onChange={(e) => setRow('personnel', i, 'middleInitial', e.target.value)} />
+            <input type="text" placeholder="Last" value={p.lastName} onChange={(e) => setRow('personnel', i, 'lastName', e.target.value)} />
+            <select value={p.role} onChange={(e) => setRow('personnel', i, 'role', e.target.value)}>
+              {PERSONNEL_ROLES.map((r) => <option key={r.value} value={r.value}>{r.value}</option>)}
+            </select>
+            <input type="text" placeholder="License type" value={p.licenseType} onChange={(e) => setRow('personnel', i, 'licenseType', e.target.value)} />
+            <input type="text" placeholder="License #" value={p.licenseNumber} onChange={(e) => setRow('personnel', i, 'licenseNumber', e.target.value)} />
+            <button type="button" className="link-button danger small" onClick={() => removeRow('personnel', i)}>×</button>
+          </div>
+        ))}
+        <button type="button" className="link-button" onClick={() => addRow('personnel', { firstName: '', middleInitial: '', lastName: '', role: 'TP', licenseType: '', licenseNumber: '' })}>
+          + Add person
+        </button>
+        <p className="muted small">Roles: GS = General Supervisor · TS = Technical Supervisor · TC = Technical Consultant · TP = Testing Personnel</p>
+      </section>
+
+      {q.targetStates.includes('CA') && q.lab.state === 'CA' && (
+        <section className="card">
+          <h3 className="card-title">Lab assistants (California)</h3>
+          <p className="muted">Non-testing staff and their schedules — goes on the CA personnel report.</p>
+          {q.assistants.map((a, i) => (
+            <div className="q-person-row q-assistant-row" key={i}>
+              <input type="text" placeholder="Name" value={a.name} onChange={(e) => setRow('assistants', i, 'name', e.target.value)} />
+              <input type="text" placeholder="Schedule (e.g. M–F 8am–5pm)" value={a.schedule} onChange={(e) => setRow('assistants', i, 'schedule', e.target.value)} />
+              <input type="text" placeholder="Function" value={a.function || ''} onChange={(e) => setRow('assistants', i, 'function', e.target.value)} />
+              <button type="button" className="link-button danger small" onClick={() => removeRow('assistants', i)}>×</button>
+            </div>
+          ))}
+          <button type="button" className="link-button" onClick={() => addRow('assistants', { name: '', schedule: '', function: '' })}>
+            + Add lab assistant
+          </button>
+        </section>
+      )}
+
+      <section className="card">
+        <h3 className="card-title">Associated laboratories</h3>
+        <p className="muted">Other labs under common ownership or direction (CLIA multiple-site section).</p>
+        {q.associatedLabs.map((l, i) => (
+          <div className="q-person-row q-assoc-row" key={i}>
+            <input type="text" placeholder="CLIA number" value={l.cliaNumber} onChange={(e) => setRow('associatedLabs', i, 'cliaNumber', e.target.value)} />
+            <input type="text" placeholder="Laboratory name" value={l.name} onChange={(e) => setRow('associatedLabs', i, 'name', e.target.value)} />
+            <button type="button" className="link-button danger small" onClick={() => removeRow('associatedLabs', i)}>×</button>
+          </div>
+        ))}
+        {q.associatedLabs.length < 6 && (
+          <button type="button" className="link-button" onClick={() => addRow('associatedLabs', { cliaNumber: '', name: '' })}>
+            + Add associated lab
+          </button>
+        )}
+      </section>
+
+      <section className="card">
+        <h3 className="card-title">Form prepared by</h3>
+        <div className="q-grid">
+          <Field label="Name">{txt('preparedBy.name', q.preparedBy.name)}</Field>
+          <Field label="Title">{txt('preparedBy.title', q.preparedBy.title)}</Field>
+        </div>
+      </section>
+
+      <div className="save-bar">
+        <span className="muted small">{savedAt && `Saved ${new Date(savedAt).toLocaleString()}`}</span>
+        <button className="submit-button save-button" onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : 'Save questionnaire'}
+        </button>
+      </div>
+
+      <section className="card">
+        <h3 className="card-title">Your form packet</h3>
+        {packet.length === 0 && <p className="muted">Save the questionnaire to see which forms apply.</p>}
+        {packet.map((grp) => (
+          <div key={grp.group} className="q-packet-group">
+            <h4 className="q-subhead">{grp.name}</h4>
+            {grp.forms.map((f) => (
+              <div className="doc-row" key={f.id}>
+                <div className="doc-info">
+                  <span className="doc-name">{f.title}</span>
+                  {f.stage !== 'initial' && <span className="doc-meta">{f.stage === 'renewal' ? 'Renewal — use when renewing an existing license' : 'Use when reporting changes to an existing license'}</span>}
+                  {f.adobeOnly && <span className="doc-meta">Dynamic government form — open the downloaded file in Adobe Reader/Acrobat to see your pre-filled data.</span>}
+                </div>
+                <a className="link-button" href={`${formDownloadPath}/${f.id}/download`}>Download pre-filled</a>
+              </div>
+            ))}
+          </div>
+        ))}
+        <p className="muted small">Forms are pre-filled from this questionnaire. Review every form, complete test-menu and signature sections by hand, then sign and submit.</p>
+      </section>
+    </div>
+  );
+}
