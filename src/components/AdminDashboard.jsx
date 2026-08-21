@@ -5,6 +5,222 @@ import { QuestionnairePanel } from './QuestionnairePanel';
 import '../styles/admin.css';
 
 const STATUSES = ['New', 'Onboarding', 'In Review', 'Inspection Ready', 'On Hold'];
+const LAB_TYPES = ['Clinical', 'Research', 'Diagnostic', 'Other'];
+
+function AddClientForm({ api, onCreated, onClose }) {
+  const [form, setForm] = useState({ email: '', firstName: '', lastName: '', phone: '', businessName: '', businessAddress: '', labType: 'Clinical', password: '' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null); // { client, tempPassword }
+
+  const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  const submit = async () => {
+    setBusy(true); setError('');
+    try {
+      const d = await api('/api/admin/clients', { method: 'POST', body: JSON.stringify(form) });
+      setResult(d);
+      onCreated(d.client);
+    } catch (err) {
+      setError(err.message || 'Could not create client');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="admin-panel-card">
+        <h3>Client created</h3>
+        <p><strong>{result.client.businessName}</strong> · {result.client.email}</p>
+        <p className="temp-password-box">
+          Temporary password: <code>{result.tempPassword}</code>
+          <button className="link-button" onClick={() => navigator.clipboard?.writeText(result.tempPassword)}>Copy</button>
+        </p>
+        <p className="muted small">Send these sign-in details to the client — this password is only shown once. They sign in at /login with their email.</p>
+        <button className="submit-button" onClick={onClose}>Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-panel-card">
+      <h3>Add a client manually</h3>
+      {error && <div className="error-banner">{error}</div>}
+      <div className="q-grid">
+        <label className="q-field q-wide"><span className="q-label">Email *</span><input type="email" value={form.email} onChange={set('email')} /></label>
+        <label className="q-field"><span className="q-label">Contact first name *</span><input type="text" value={form.firstName} onChange={set('firstName')} /></label>
+        <label className="q-field"><span className="q-label">Contact last name *</span><input type="text" value={form.lastName} onChange={set('lastName')} /></label>
+        <label className="q-field"><span className="q-label">Phone</span><input type="text" value={form.phone} onChange={set('phone')} /></label>
+        <label className="q-field q-wide"><span className="q-label">Business / lab name *</span><input type="text" value={form.businessName} onChange={set('businessName')} /></label>
+        <label className="q-field q-wide"><span className="q-label">Business address</span><input type="text" value={form.businessAddress} onChange={set('businessAddress')} /></label>
+        <label className="q-field"><span className="q-label">Lab type</span>
+          <select value={form.labType} onChange={set('labType')}>{LAB_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+        </label>
+        <label className="q-field"><span className="q-label">Password (blank = auto-generate)</span><input type="text" value={form.password} onChange={set('password')} /></label>
+      </div>
+      <div className="admin-panel-actions">
+        <button className="submit-button" disabled={busy} onClick={submit}>{busy ? 'Creating…' : 'Create client'}</button>
+        <button className="link-button" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function ImportQuestionnaire({ api, clients, onDone, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [extracted, setExtracted] = useState(null); // { client, questionnaire, warnings }
+  const [mode, setMode] = useState('new'); // 'new' | 'existing'
+  const [existingEmail, setExistingEmail] = useState('');
+  const [client, setClient] = useState({ email: '', firstName: '', lastName: '', phone: '', businessName: '', businessAddress: '', labType: 'Clinical' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(null); // { email, tempPassword? }
+  const inputRef = React.useRef(null);
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { setError('File exceeds the 5 MB limit'); return; }
+    setBusy(true); setError('');
+    try {
+      const dataBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const d = await api('/api/admin/questionnaire-import', {
+        method: 'POST',
+        body: JSON.stringify({ name: file.name, contentType: file.type || 'application/octet-stream', dataBase64 }),
+      });
+      const ex = d.extracted || {};
+      setExtracted(ex);
+      const c = ex.client || {};
+      const labName = ex.questionnaire?.lab?.name || c.businessName || '';
+      setClient({
+        email: c.email || ex.questionnaire?.contact?.email || ex.questionnaire?.lab?.email || '',
+        firstName: c.firstName || '',
+        lastName: c.lastName || '',
+        phone: c.phone || ex.questionnaire?.contact?.phone || '',
+        businessName: c.businessName || labName,
+        businessAddress: c.businessAddress || '',
+        labType: 'Clinical',
+      });
+    } catch (err) {
+      setError(err.message || 'Could not read the document');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      let email;
+      let tempPassword = null;
+      if (mode === 'existing') {
+        if (!existingEmail) { setError('Pick the client to attach this questionnaire to'); setSaving(false); return; }
+        email = existingEmail;
+      } else {
+        const d = await api('/api/admin/clients', { method: 'POST', body: JSON.stringify(client) });
+        email = d.client.email;
+        tempPassword = d.tempPassword;
+      }
+      await api(`/api/admin/clients/${encodeURIComponent(email)}/questionnaire`, {
+        method: 'PUT',
+        body: JSON.stringify({ questionnaire: extracted.questionnaire || {} }),
+      });
+      setSaved({ email, tempPassword });
+      onDone(email);
+    } catch (err) {
+      setError(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (saved) {
+    return (
+      <div className="admin-panel-card">
+        <h3>Questionnaire imported</h3>
+        <p>Saved to <strong>{saved.email}</strong>. Open the client's License Forms tab to review the answers and download pre-filled forms.</p>
+        {saved.tempPassword && (
+          <p className="temp-password-box">
+            Temporary password: <code>{saved.tempPassword}</code>
+            <button className="link-button" onClick={() => navigator.clipboard?.writeText(saved.tempPassword)}>Copy</button>
+          </p>
+        )}
+        <button className="submit-button" onClick={onClose}>Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-panel-card">
+      <h3>Import a filled-out questionnaire (OCR)</h3>
+      {error && <div className="error-banner">{error}</div>}
+      {!extracted && (
+        <>
+          <p className="muted">Upload a client's existing intake questionnaire — a scan, photo, or PDF. The AI reads it (even when it says "facility" where we say "laboratory"), extracts the answers, and sets up the client.</p>
+          <input ref={inputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt" style={{ display: 'none' }} onChange={onFile} />
+          <button className="submit-button" disabled={busy} onClick={() => inputRef.current?.click()}>
+            {busy ? 'Reading document…' : 'Choose scan / PDF'}
+          </button>
+        </>
+      )}
+      {extracted && (
+        <>
+          {extracted.warnings?.length > 0 && (
+            <div className="notice-banner">Check these: {extracted.warnings.join(' · ')}</div>
+          )}
+          <p className="muted small">
+            Extracted: {extracted.questionnaire?.lab?.name || 'lab name not found'}
+            {extracted.questionnaire?.license?.cliaNumber ? ` · CLIA ${extracted.questionnaire.license.cliaNumber}` : ''}
+            {Array.isArray(extracted.questionnaire?.targetStates) && extracted.questionnaire.targetStates.length ? ` · states: ${extracted.questionnaire.targetStates.join(', ')}` : ''}
+            {` · ${(extracted.questionnaire?.personnel || []).length} testing personnel`}
+          </p>
+          <div className="q-states" style={{ margin: '10px 0' }}>
+            <label className={`q-state-pill ${mode === 'new' ? 'on' : ''}`}>
+              <input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} /> Create new client
+            </label>
+            <label className={`q-state-pill ${mode === 'existing' ? 'on' : ''}`}>
+              <input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} /> Attach to existing client
+            </label>
+          </div>
+          {mode === 'existing' ? (
+            <label className="q-field"><span className="q-label">Client</span>
+              <select value={existingEmail} onChange={(e) => setExistingEmail(e.target.value)}>
+                <option value="">Select client…</option>
+                {clients.filter((c) => c.role !== 'admin').map((c) => (
+                  <option key={c.email} value={c.email}>{c.businessName} ({c.email})</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="q-grid">
+              <label className="q-field q-wide"><span className="q-label">Email *</span><input type="email" value={client.email} onChange={(e) => setClient({ ...client, email: e.target.value })} /></label>
+              <label className="q-field"><span className="q-label">Contact first name *</span><input type="text" value={client.firstName} onChange={(e) => setClient({ ...client, firstName: e.target.value })} /></label>
+              <label className="q-field"><span className="q-label">Contact last name *</span><input type="text" value={client.lastName} onChange={(e) => setClient({ ...client, lastName: e.target.value })} /></label>
+              <label className="q-field"><span className="q-label">Phone</span><input type="text" value={client.phone} onChange={(e) => setClient({ ...client, phone: e.target.value })} /></label>
+              <label className="q-field q-wide"><span className="q-label">Business / lab name *</span><input type="text" value={client.businessName} onChange={(e) => setClient({ ...client, businessName: e.target.value })} /></label>
+              <label className="q-field"><span className="q-label">Lab type</span>
+                <select value={client.labType} onChange={(e) => setClient({ ...client, labType: e.target.value })}>{LAB_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              </label>
+            </div>
+          )}
+          <div className="admin-panel-actions">
+            <button className="submit-button" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save client & questionnaire'}</button>
+            <button className="link-button" onClick={() => setExtracted(null)}>Re-scan</button>
+            <button className="link-button" onClick={onClose}>Cancel</button>
+          </div>
+          <p className="muted small">The imported answers land in the client's License Forms questionnaire — review them there before generating forms.</p>
+        </>
+      )}
+    </div>
+  );
+}
 
 function ReadinessBadge({ value }) {
   if (value === null || value === undefined) return <span className="readiness-badge none">No assessment</span>;
@@ -21,6 +237,7 @@ export function AdminDashboard() {
   const [selected, setSelected] = useState(null); // { client, assessment, documents }
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState('overview'); // 'overview' | 'forms'
+  const [tool, setTool] = useState(null); // null | 'add' | 'import'
 
   const loadClients = async () => {
     setLoading(true);
@@ -91,7 +308,26 @@ export function AdminDashboard() {
           {STATUSES.map((s) => <option key={s}>{s}</option>)}
         </select>
         <button className="link-button" onClick={loadClients}>Refresh</button>
+        <span className="toolbar-spacer" />
+        <button className="submit-button toolbar-action" onClick={() => setTool(tool === 'add' ? null : 'add')}>+ Add client</button>
+        <button className="submit-button toolbar-action secondary" onClick={() => setTool(tool === 'import' ? null : 'import')}>Import questionnaire (OCR)</button>
       </div>
+
+      {tool === 'add' && (
+        <AddClientForm
+          api={api}
+          onCreated={() => loadClients()}
+          onClose={() => setTool(null)}
+        />
+      )}
+      {tool === 'import' && (
+        <ImportQuestionnaire
+          api={api}
+          clients={clients}
+          onDone={(email) => { loadClients(); openDetail(email); setDetailTab('forms'); }}
+          onClose={() => setTool(null)}
+        />
+      )}
 
       <div className="admin-layout">
         <section className="client-table-wrap">

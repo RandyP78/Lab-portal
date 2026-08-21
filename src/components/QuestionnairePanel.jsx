@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  EMPTY_QUESTIONNAIRE, US_STATES, TARGET_STATES, OWNERSHIP_TYPES, CERTIFICATE_TYPES,
-  ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
+  EMPTY_QUESTIONNAIRE, US_STATES, STATE_NAMES, STATES_WITH_SPECIFIC_FORMS, OWNERSHIP_TYPES,
+  CERTIFICATE_TYPES, ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
 } from '../data/questionnaire';
 import '../styles/dashboard.css';
 
@@ -71,13 +71,14 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
   const addRow = (listKey, template) => setQ((prev) => ({ ...prev, [listKey]: [...prev[listKey], { ...template }] }));
   const removeRow = (listKey, idx) => setQ((prev) => ({ ...prev, [listKey]: prev[listKey].filter((_, i) => i !== idx) }));
 
-  const toggleState = (code) => {
-    setQ((prev) => ({
-      ...prev,
-      targetStates: prev.targetStates.includes(code)
-        ? prev.targetStates.filter((s) => s !== code)
-        : [...prev.targetStates, code],
-    }));
+  const addTargetState = (code) => {
+    if (!code) return;
+    setQ((prev) => prev.targetStates.includes(code)
+      ? prev
+      : { ...prev, targetStates: [...prev.targetStates, code] });
+  };
+  const removeTargetState = (code) => {
+    setQ((prev) => ({ ...prev, targetStates: prev.targetStates.filter((s) => s !== code) }));
   };
 
   const save = async () => {
@@ -105,13 +106,24 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
 
       <section className="card">
         <h3 className="card-title">Where is the lab licensing?</h3>
-        <p className="muted">Every lab files the federal CLIA forms. Pick each state you're applying to operate in — the packet adjusts to your lab's location (e.g. a lab outside California serving CA patients uses the out-of-state forms).</p>
+        <p className="muted">Add every state you're applying to operate in. Each one gets the federal CLIA forms (CMS-116 / CMS-209) filled out; states with their own application forms (currently California and Texas) get those added on top — and the packet adjusts to your lab's location (e.g. a lab outside California serving CA patients uses the out-of-state forms).</p>
         <div className="q-states">
-          {TARGET_STATES.map((s) => (
-            <label key={s.code} className={`q-state-pill ${q.targetStates.includes(s.code) ? 'on' : ''}`}>
-              <input type="checkbox" checked={q.targetStates.includes(s.code)} onChange={() => toggleState(s.code)} />
-              {s.name}
-            </label>
+          <select
+            className="q-state-add"
+            value=""
+            onChange={(e) => { addTargetState(e.target.value); }}
+          >
+            <option value="">+ Add a state…</option>
+            {US_STATES.filter((s) => !q.targetStates.includes(s)).map((s) => (
+              <option key={s} value={s}>{STATE_NAMES[s] || s}</option>
+            ))}
+          </select>
+          {q.targetStates.map((code) => (
+            <span key={code} className="q-state-pill on">
+              {STATE_NAMES[code] || code}
+              {STATES_WITH_SPECIFIC_FORMS.includes(code) && <span className="q-state-note">+ state forms</span>}
+              <button type="button" className="q-state-remove" onClick={() => removeTargetState(code)} aria-label={`Remove ${code}`}>×</button>
+            </span>
           ))}
         </div>
       </section>
@@ -381,6 +393,7 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
         {packet.map((grp) => (
           <div key={grp.group} className="q-packet-group">
             <h4 className="q-subhead">{grp.name}</h4>
+            {grp.note && <p className="muted small">{grp.note}</p>}
             {grp.forms.map((f) => (
               <div className="doc-row" key={f.id}>
                 <div className="doc-info">

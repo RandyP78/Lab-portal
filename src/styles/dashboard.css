@@ -389,3 +389,18 @@
 .detail-tabs { margin: 10px 0 14px; }
 .q-compact .q-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .q-compact .card { padding: 14px; margin-bottom: 12px; }
+
+/* state multi-select */
+.q-state-add {
+  padding: 9px 12px; border: 1.5px dashed #b9b9c4; border-radius: 999px;
+  font-size: 14px; background: #fff; color: #555; cursor: pointer; font-family: inherit;
+}
+.q-state-pill .q-state-note {
+  font-size: 11px; font-weight: 700; background: #0F6E56; color: #fff;
+  border-radius: 999px; padding: 2px 8px;
+}
+.q-state-remove {
+  border: none; background: none; color: #0F6E56; font-size: 16px; line-height: 1;
+  cursor: pointer; padding: 0 2px; font-weight: 700;
+}
+.q-state-remove:hover { color: #c0392b; }

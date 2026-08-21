@@ -40,17 +40,31 @@ const GROUP_NAMES = {
 export function buildPacket(q) {
   const labState = String(q?.lab?.state || "").trim().toUpperCase();
   const targets = Array.isArray(q?.targetStates)
-    ? q.targetStates.map((s) => String(s).trim().toUpperCase())
+    ? q.targetStates.map((s) => String(s).trim().toUpperCase()).filter(Boolean)
     : [];
   const groups = ["federal"];
   if (targets.includes("CA")) groups.push(labState === "CA" ? "ca_in_state" : "ca_out_of_state");
   if (targets.includes("TX")) groups.push("texas");
 
-  return groups.map((g) => ({
+  const packet = groups.map((g) => ({
     group: g,
-    name: GROUP_NAMES[g],
+    name: g === "federal" && targets.length
+      ? `Federal CLIA forms — required for every state (${targets.join(", ")})`
+      : GROUP_NAMES[g],
     forms: FORM_CATALOG.filter((f) => f.group === g).map(({ file, ...rest }) => rest),
   }));
+
+  // States with no state-specific forms in the system yet — federal packet covers the filing
+  const others = targets.filter((s) => s !== "CA" && s !== "TX");
+  if (others.length) {
+    packet.push({
+      group: "federal_only",
+      name: `Other states: ${others.join(", ")}`,
+      forms: [],
+      note: "These states are covered by the federal CMS forms above — no additional state-specific application forms are loaded in the system for them. If a state sends its own supplemental form, upload it in Documents and we can add it to the packet.",
+    });
+  }
+  return packet;
 }
 
 // ---------- canonical helpers ----------

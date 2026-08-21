@@ -193,3 +193,20 @@
   .admin-layout { grid-template-columns: 1fr; }
   .client-detail { position: static; }
 }
+
+/* admin tools: add client + OCR import */
+.toolbar-spacer { flex: 1; }
+.toolbar-action { padding: 8px 16px; font-size: 14px; }
+.toolbar-action.secondary { background: #fff; color: #0F6E56; border: 1.5px solid #0F6E56; }
+.admin-panel-card {
+  background: #fff; border: 1px solid #e4e4ec; border-radius: 12px;
+  padding: 20px; margin: 0 0 18px;
+  box-shadow: 0 1px 3px rgba(20, 20, 40, 0.06);
+}
+.admin-panel-card h3 { margin: 0 0 12px; }
+.admin-panel-actions { display: flex; gap: 14px; align-items: center; margin-top: 16px; }
+.temp-password-box {
+  background: #f4f7f6; border: 1px dashed #0F6E56; border-radius: 8px;
+  padding: 10px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.temp-password-box code { font-size: 16px; font-weight: 700; color: #0F6E56; }
