@@ -93,7 +93,7 @@ export const EMPTY_QUESTIONNAIRE = {
     associationDate: '', hoursPerWeek: '',
   },
   contact: { name: '', phone: '', email: '' },
-  personnel: [{ firstName: '', middleInitial: '', lastName: '', role: 'TP', licenseType: '', licenseNumber: '' }],
+  personnel: [{ firstName: '', middleInitial: '', lastName: '', roles: ['TP'], licenseType: '', licenseNumber: '' }],
   assistants: [],
   associatedLabs: [],
   preparedBy: { name: '', title: '' },

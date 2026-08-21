@@ -219,17 +219,22 @@ const MAPS = {
       "Printed name of lab director": h.dirFirstLast,
     };
     const check = [];
-    // Row 1 = director, then testing personnel
-    const rows = [{ name: h.dirLastFirst, role: "D" }].concat(
-      h.personnel.map((p) => ({ name: h.personName(p), role: p.role || "TP" }))
+    // Row 1 = director, then testing personnel (a person can hold several roles)
+    const rows = [{ name: h.dirLastFirst, roles: ["D"] }].concat(
+      h.personnel.map((p) => ({
+        name: h.personName(p),
+        roles: Array.isArray(p.roles) && p.roles.length ? p.roles : (p.role ? [p.role] : ["TP"]),
+      }))
     );
     rows.slice(0, 15).forEach((r, i) => {
       const n = i + 1;
       text[`EMPLOYEE NAMES ${n}`] = r.name;
-      if (r.role === "D") check.push(`D1 row${n}`);
-      else if (r.role === "GS") check.push(`CT/GS1  row${n}`);
-      else if (r.role === "TS") text[`TS1  row${n}`] = "X";
-      else if (r.role === "TC") text[`TC1  row${n}`] = "X";
+      for (const role of r.roles) {
+        if (role === "D") check.push(`D1 row${n}`);
+        else if (role === "GS") check.push(`CT/GS1  row${n}`);
+        else if (role === "TS") text[`TS1  row${n}`] = "X";
+        else if (role === "TC") text[`TC1  row${n}`] = "X";
+      }
     });
     return { text, check };
   },

@@ -367,6 +367,65 @@ async function handleAdminClientDetail(email) {
   });
 }
 
+// ---------- Office document text extraction (docx/xlsx/pptx are zip+XML) ----------
+const OFFICE_EXTS = /\.(docx|xlsx|pptx)$/;
+const LEGACY_OFFICE_EXTS = /\.(doc|xls|ppt)$/;
+
+function xmlToText(xml, tagRe) {
+  const out = [];
+  let m;
+  while ((m = tagRe.exec(xml)) !== null) out.push(m[1]);
+  return out.join(" ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, d) => String.fromCharCode(d));
+}
+
+async function extractOfficeText(buf, fname) {
+  const zip = await JSZip.loadAsync(buf);
+  const parts = [];
+  if (fname.endsWith(".docx")) {
+    for (const p of ["word/document.xml", "word/header1.xml", "word/footer1.xml"]) {
+      const f = zip.file(p);
+      if (!f) continue;
+      const xml = await f.async("string");
+      // paragraph breaks, then text runs
+      parts.push(xml.replace(/<\/w:p>/g, "\n").replace(/<w:tab[^>]*\/>/g, "\t").split("\n").map((line) => xmlToText(line, /<w:t[^>]*>([^<]*)<\/w:t>/g)).join("\n"));
+    }
+  } else if (fname.endsWith(".xlsx")) {
+    const shared = [];
+    const ss = zip.file("xl/sharedStrings.xml");
+    if (ss) {
+      const xml = await ss.async("string");
+      let m; const re = /<si>([\s\S]*?)<\/si>/g;
+      while ((m = re.exec(xml)) !== null) shared.push(xmlToText(m[1], /<t[^>]*>([^<]*)<\/t>/g));
+    }
+    const sheets = Object.keys(zip.files).filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort();
+    for (const name of sheets) {
+      const xml = await zip.file(name).async("string");
+      const rows = [];
+      let rm; const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g;
+      while ((rm = rowRe.exec(xml)) !== null) {
+        const cells = [];
+        let cm; const cellRe = /<c([^>]*)>([\s\S]*?)<\/c>/g;
+        while ((cm = cellRe.exec(rm[1])) !== null) {
+          const attrs = cm[1];
+          const v = (cm[2].match(/<v>([^<]*)<\/v>/) || [])[1];
+          const it = (cm[2].match(/<t[^>]*>([^<]*)<\/t>/) || [])[1];
+          if (it !== undefined) cells.push(it);
+          else if (v !== undefined) cells.push(/t="s"/.test(attrs) ? (shared[Number(v)] ?? v) : v);
+        }
+        if (cells.some((c) => String(c).trim())) rows.push(cells.join("\t"));
+      }
+      parts.push(rows.join("\n"));
+    }
+  } else if (fname.endsWith(".pptx")) {
+    const slides = Object.keys(zip.files).filter((k) => /^ppt\/slides\/slide\d+\.xml$/.test(k)).sort();
+    for (const name of slides) {
+      const xml = await zip.file(name).async("string");
+      parts.push(xmlToText(xml, /<a:t[^>]*>([^<]*)<\/a:t>/g));
+    }
+  }
+  return parts.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // ---------- AI document analysis ----------
 // Required-documents checklist — mirrored on the frontend (src/data/assessment.js)
 const REQUIRED_DOCS = [
@@ -425,6 +484,14 @@ async function callClaudeAnalysis(meta, buf) {
   } else if (ct.startsWith("text/") || /\.(txt|csv|md)$/.test(name)) {
     const text = Buffer.from(buf).toString("utf8").slice(0, 100000);
     contentBlock = { type: "text", text: `Document contents:\n\n${text}` };
+  } else if (OFFICE_EXTS.test(name)) {
+    try {
+      const text = (await extractOfficeText(Buffer.from(buf), name)).slice(0, 100000);
+      if (!text) return { unsupported: true };
+      contentBlock = { type: "text", text: `Document contents (extracted from ${name.split(".").pop()}):\n\n${text}` };
+    } catch {
+      return { unsupported: true };
+    }
   } else {
     return { unsupported: true };
   }
@@ -640,7 +707,7 @@ Respond with ONLY a JSON object (no markdown fences, no prose):
                   "licenseExpiration": "", "licenseIssuer": "", "phone": "", "email": "", "address": "", "city": "", "state": "",
                   "zip": "", "associationDate": "", "hoursPerWeek": "" },
     "contact": { "name": "", "phone": "", "email": "" },
-    "personnel": [ { "firstName": "", "middleInitial": "", "lastName": "", "role": "GS|TS|TC|TP", "licenseType": "", "licenseNumber": "" } ],
+    "personnel": [ { "firstName": "", "middleInitial": "", "lastName": "", "roles": ["one or more of GS, TS, TC, TP"], "licenseType": "", "licenseNumber": "" } ],
     "assistants": [ { "name": "", "schedule": "", "function": "" } ],
     "associatedLabs": [ { "cliaNumber": "", "name": "" } ],
     "preparedBy": { "name": "", "title": "" }
@@ -672,8 +739,15 @@ async function handleQuestionnaireImport(req) {
     contentBlock = { type: "image", source: { type: "base64", media_type: mt, data: buf.toString("base64") } };
   } else if (ct.startsWith("text/") || /\.(txt|csv|md)$/.test(fname)) {
     contentBlock = { type: "text", text: `Document contents:\n\n${buf.toString("utf8").slice(0, 150000)}` };
+  } else if (OFFICE_EXTS.test(fname)) {
+    let text = "";
+    try { text = (await extractOfficeText(buf, fname)).slice(0, 150000); } catch { /* fall through */ }
+    if (!text) return json({ error: "Couldn't read any text out of that Office file — try exporting it to PDF." }, 415);
+    contentBlock = { type: "text", text: `Questionnaire contents (extracted from ${fname.split(".").pop()} file):\n\n${text}` };
+  } else if (LEGACY_OFFICE_EXTS.test(fname)) {
+    return json({ error: "Old-format Office files (.doc/.xls/.ppt) can't be read — re-save as .docx/.xlsx or export to PDF." }, 415);
   } else {
-    return json({ error: "This file type can't be read. Use a PDF, PNG/JPG scan, or plain text — for Word docs, export to PDF first." }, 415);
+    return json({ error: "This file type can't be read. Use a PDF, a PNG/JPG scan, a Word/Excel file (.docx/.xlsx), or plain text." }, 415);
   }
 
   const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";

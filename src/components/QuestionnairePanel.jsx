@@ -70,6 +70,19 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
     });
   };
   const addRow = (listKey, template) => setQ((prev) => ({ ...prev, [listKey]: [...prev[listKey], { ...template }] }));
+
+  // Personnel can hold several roles at once (e.g. GS + TC)
+  const personRoles = (p) => (Array.isArray(p.roles) ? p.roles : (p.role ? [p.role] : []));
+  const togglePersonRole = (idx, role) => {
+    setQ((prev) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const p = next.personnel[idx];
+      const roles = Array.isArray(p.roles) ? p.roles : (p.role ? [p.role] : []);
+      p.roles = roles.includes(role) ? roles.filter((r) => r !== role) : [...roles, role];
+      delete p.role;
+      return next;
+    });
+  };
   const removeRow = (listKey, idx) => setQ((prev) => ({ ...prev, [listKey]: prev[listKey].filter((_, i) => i !== idx) }));
 
   const toggleTargetState = (code) => {
@@ -326,18 +339,27 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
             <input type="text" placeholder="First" value={p.firstName} onChange={(e) => setRow('personnel', i, 'firstName', e.target.value)} />
             <input type="text" placeholder="MI" maxLength={2} className="q-mi" value={p.middleInitial} onChange={(e) => setRow('personnel', i, 'middleInitial', e.target.value)} />
             <input type="text" placeholder="Last" value={p.lastName} onChange={(e) => setRow('personnel', i, 'lastName', e.target.value)} />
-            <select value={p.role} onChange={(e) => setRow('personnel', i, 'role', e.target.value)}>
-              {PERSONNEL_ROLES.map((r) => <option key={r.value} value={r.value}>{r.value}</option>)}
-            </select>
+            <span className="q-role-checks">
+              {PERSONNEL_ROLES.map((r) => (
+                <label key={r.value} className={personRoles(p).includes(r.value) ? 'on' : ''} title={r.label}>
+                  <input
+                    type="checkbox"
+                    checked={personRoles(p).includes(r.value)}
+                    onChange={() => togglePersonRole(i, r.value)}
+                  />
+                  {r.value}
+                </label>
+              ))}
+            </span>
             <input type="text" placeholder="License type" value={p.licenseType} onChange={(e) => setRow('personnel', i, 'licenseType', e.target.value)} />
             <input type="text" placeholder="License #" value={p.licenseNumber} onChange={(e) => setRow('personnel', i, 'licenseNumber', e.target.value)} />
             <button type="button" className="link-button danger small" onClick={() => removeRow('personnel', i)}>×</button>
           </div>
         ))}
-        <button type="button" className="link-button" onClick={() => addRow('personnel', { firstName: '', middleInitial: '', lastName: '', role: 'TP', licenseType: '', licenseNumber: '' })}>
+        <button type="button" className="link-button" onClick={() => addRow('personnel', { firstName: '', middleInitial: '', lastName: '', roles: ['TP'], licenseType: '', licenseNumber: '' })}>
           + Add person
         </button>
-        <p className="muted small">Roles: GS = General Supervisor · TS = Technical Supervisor · TC = Technical Consultant · TP = Testing Personnel</p>
+        <p className="muted small">Roles (check all that a person holds): GS = General Supervisor · TS = Technical Supervisor · TC = Technical Consultant · TP = Testing Personnel</p>
       </section>
 
       {q.targetStates.includes('CA') && q.lab.state === 'CA' && (
