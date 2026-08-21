@@ -4,6 +4,7 @@ import {
   CERTIFICATE_TYPES, ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
   SELECTABLE_STATES, NY_DISCLAIMER,
   TRIAGE_STATEMENT, COMPLEXITY_LEVELS, TRIAGE_QUESTIONS, APPLICATION_TYPE_LABELS,
+  CHANGE_ITEMS, EMAIL_QUESTION, EMAIL_RE,
 } from '../data/questionnaire';
 import '../styles/dashboard.css';
 
@@ -16,6 +17,7 @@ function mergeQ(saved) {
     merged[k] = { ...base[k], ...(saved[k] || {}) };
   }
   merged.triage.answers = { ...(saved.triage?.answers || {}) };
+  merged.triage.changeItems = Array.isArray(saved.triage?.changeItems) ? saved.triage.changeItems : [];
   merged.lab.hours = { ...(saved.lab?.hours || {}) };
   for (const k of ['owners', 'personnel', 'assistants', 'associatedLabs', 'targetStates']) {
     merged[k] = Array.isArray(saved[k]) ? saved[k] : base[k];
@@ -101,8 +103,21 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
       return { ...prev, triage: { ...prev.triage, answers, applicationType: deriveApplicationType(answers) } };
     });
   };
+  const toggleChangeItem = (value) => {
+    setQ((prev) => {
+      const items = Array.isArray(prev.triage.changeItems) ? prev.triage.changeItems : [];
+      return {
+        ...prev,
+        triage: {
+          ...prev.triage,
+          changeItems: items.includes(value) ? items.filter((v) => v !== value) : [...items, value],
+        },
+      };
+    });
+  };
   const triageType = q.triage.applicationType;
-  const triageDone = q.triage.accepted && q.lab.state && q.targetStates.length > 0 && q.triage.complexity && triageType;
+  const emailOk = EMAIL_RE.test(q.lab.email || '');
+  const triageDone = q.triage.accepted && emailOk && q.lab.state && q.targetStates.length > 0 && q.triage.complexity && triageType;
 
   const toggleTargetState = (code) => {
     setQ((prev) => ({
@@ -148,6 +163,18 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
           <span><strong>{TRIAGE_STATEMENT}</strong> — I understand and accept.</span>
         </label>
 
+        <div className="q-grid" style={{ margin: '14px 0' }}>
+          <Field label={EMAIL_QUESTION} wide>
+            <input
+              type="email"
+              value={q.lab.email}
+              onChange={(e) => set('lab.email', e.target.value)}
+              placeholder="lab@example.com"
+            />
+            {q.lab.email && !emailOk && <span className="q-invalid">Enter a valid email address</span>}
+          </Field>
+        </div>
+
         <div className="q-grid" style={{ marginBottom: 14 }}>
           <Field label="What state is the laboratory located in?" wide>
             <select value={q.lab.state} onChange={(e) => set('lab.state', e.target.value)}>
@@ -186,23 +213,40 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
 
         <h4 className="q-subhead">What are we filing?</h4>
         {TRIAGE_QUESTIONS.map((tq) => (
-          <div className="q-triage-row" key={tq.id}>
-            <span className="q-triage-text">{tq.text}</span>
-            <span className="q-triage-buttons">
-              {['yes', 'no'].map((v) => (
-                <button
-                  key={v} type="button"
-                  className={`answer-button ${q.triage.answers[tq.id] === v ? 'selected' : ''}`}
-                  onClick={() => setTriageAnswer(tq.id, v)}
-                >
-                  {v === 'yes' ? 'Yes' : 'No'}
-                </button>
-              ))}
-            </span>
-          </div>
+          <React.Fragment key={tq.id}>
+            <div className="q-triage-row">
+              <span className="q-triage-text">{tq.text}</span>
+              <span className="q-triage-buttons">
+                {['yes', 'no'].map((v) => (
+                  <button
+                    key={v} type="button"
+                    className={`answer-button ${q.triage.answers[tq.id] === v ? 'selected' : ''}`}
+                    onClick={() => setTriageAnswer(tq.id, v)}
+                  >
+                    {v === 'yes' ? 'Yes' : 'No'}
+                  </button>
+                ))}
+              </span>
+            </div>
+            {tq.changeItems && q.triage.answers[tq.id] === 'yes' && (
+              <div className="q-change-items">
+                <span className="q-label">What is changing?</span>
+                {CHANGE_ITEMS.map((ci) => (
+                  <label key={ci.value} className={`q-state-check ${q.triage.changeItems.includes(ci.value) ? 'on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={q.triage.changeItems.includes(ci.value)}
+                      onChange={() => toggleChangeItem(ci.value)}
+                    />
+                    <span>{ci.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </React.Fragment>
         ))}
         <label className="q-field q-wide" style={{ marginTop: 10 }}>
-          <span className="q-label">Please fill out all paperwork to the best of your ability and write a detailed message here:</span>
+          <span className="q-label">Is there anything the consultant should know?</span>
           <textarea
             rows={3}
             value={q.triage.message}
@@ -248,7 +292,9 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
           )}
           <Field label="Phone">{txt('lab.phone', q.lab.phone)}</Field>
           <Field label="Fax">{txt('lab.fax', q.lab.fax)}</Field>
-          <Field label="Email">{txt('lab.email', q.lab.email)}</Field>
+          <Field label="Email (from Start here)">
+            <input type="text" value={q.lab.email} readOnly disabled />
+          </Field>
           <Field label="Effective / anticipated start date">
             <input type="date" value={q.lab.effectiveDate} onChange={(e) => set('lab.effectiveDate', e.target.value)} />
           </Field>

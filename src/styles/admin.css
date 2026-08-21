@@ -215,3 +215,11 @@
 .detail-actions { margin: 6px 0 12px; }
 .admin-upload-row { display: flex; gap: 10px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
 .admin-upload-row select { padding: 6px 8px; border: 1px solid #d5d5de; border-radius: 6px; font-size: 13px; }
+
+/* remove client */
+.delete-confirm {
+  border: 1.5px solid #c0392b; background: #fdf1f0; border-radius: 10px;
+  padding: 14px; margin: 0 0 14px; font-size: 14px;
+}
+.danger-button { background: #c0392b; }
+.danger-button:hover { background: #a93226; }

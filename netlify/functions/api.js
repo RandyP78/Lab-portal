@@ -670,6 +670,32 @@ async function handleAdminClientCreate(req) {
   return json({ client: publicUser(user), tempPassword }, 201);
 }
 
+// ---------- admin: remove a client and every trace of their data ----------
+async function handleAdminClientDelete(email, requestingUser) {
+  const s = store();
+  const u = await s.get(`user:${email}`, { type: "json" });
+  if (!u) return json({ error: "Client not found" }, 404);
+  if (u.role === "admin") return json({ error: "Admin accounts can't be removed here" }, 400);
+  if (email === requestingUser.email) return json({ error: "You can't remove your own account" }, 400);
+
+  let removed = 0;
+  for (const prefix of [`doc:${email}:`, `docfile:${email}:`, `analysis:${email}:`]) {
+    const { blobs } = await s.list({ prefix });
+    for (const b of blobs) { await s.delete(b.key); removed++; }
+  }
+  for (const key of [`assessment:${email}`, `questionnaire:${email}`]) {
+    await s.delete(key); removed++;
+  }
+  // drop any live sessions belonging to this client
+  const { blobs: sessions } = await s.list({ prefix: "session:" });
+  for (const b of sessions) {
+    const sess = await s.get(b.key, { type: "json" });
+    if (sess && sess.email === email) { await s.delete(b.key); removed++; }
+  }
+  await s.delete(`user:${email}`);
+  return json({ ok: true, removedKeys: removed + 1 });
+}
+
 // ---------- admin: OCR-import an existing questionnaire ----------
 const IMPORT_SYSTEM_PROMPT = `You are a data-extraction engine for a laboratory licensing portal.
 You will be shown ONE document: a filled-out laboratory intake/licensing questionnaire (often scanned or photographed).
@@ -918,6 +944,7 @@ export default async function handler(req) {
         const email = decodeURIComponent(m[1]).toLowerCase();
         if (method === "GET") return await handleAdminClientDetail(email);
         if (method === "PATCH") return await handleAdminClientPatch(req, email);
+        if (method === "DELETE") return await handleAdminClientDelete(email, user);
       }
 
       m = path.match(/^\/api\/admin\/clients\/([^/]+)\/documents\/([a-f0-9]{16})\/download$/);

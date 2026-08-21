@@ -238,6 +238,8 @@ export function AdminDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState('overview'); // 'overview' | 'forms'
   const [tool, setTool] = useState(null); // null | 'add' | 'import'
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [adminUploading, setAdminUploading] = useState(false);
   const [adminUploadNote, setAdminUploadNote] = useState('');
   const [adminDocCategory, setAdminDocCategory] = useState(DOCUMENT_CATEGORIES[0]);
@@ -258,6 +260,23 @@ export function AdminDashboard() {
     a.download = `clients-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const removeClient = async () => {
+    if (!selected) return;
+    const email = selected.client.email;
+    setDeleting(true);
+    setError('');
+    try {
+      await api(`/api/admin/clients/${encodeURIComponent(email)}`, { method: 'DELETE' });
+      setSelected(null);
+      setConfirmDelete(false);
+      loadClients();
+    } catch (err) {
+      setError(err.message || 'Could not remove client');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const adminUploadFiles = async (fileList) => {
@@ -323,6 +342,7 @@ export function AdminDashboard() {
 
   const openDetail = async (email) => {
     setDetailLoading(true);
+    setConfirmDelete(false);
     setError('');
     try {
       const d = await api(`/api/admin/clients/${encodeURIComponent(email)}`);
@@ -458,7 +478,22 @@ export function AdminDashboard() {
                 <a className="link-button" href={`/api/admin/clients/${encodeURIComponent(selected.client.email)}/export`}>
                   ⬇ Download all client data (zip)
                 </a>
+                {selected.client.role !== 'admin' && !confirmDelete && (
+                  <button className="link-button danger" onClick={() => setConfirmDelete(true)}>Remove client…</button>
+                )}
               </p>
+              {confirmDelete && (
+                <div className="delete-confirm">
+                  <p><strong>Permanently remove {selected.client.businessName} ({selected.client.email})?</strong><br />
+                  This deletes their account, questionnaire, assessment, and every uploaded document. There is no undo — consider "Download all client data" first.</p>
+                  <div className="admin-panel-actions">
+                    <button className="submit-button danger-button" disabled={deleting} onClick={removeClient}>
+                      {deleting ? 'Removing…' : 'Yes, delete permanently'}
+                    </button>
+                    <button className="link-button" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                  </div>
+                </div>
+              )}
               <div className="detail-grid">
                 <div><span className="detail-label">Contact</span><span>{selected.client.firstName} {selected.client.lastName}</span></div>
                 <div><span className="detail-label">Email</span><span>{selected.client.email}</span></div>

@@ -78,7 +78,7 @@ export function buildPacket(q) {
 
   // Triage decides which paperwork stage applies; without triage, show everything
   const appType = String(q?.triage?.applicationType || "").trim();
-  const stageFor = { initial: ["initial"], renewal: ["renewal"], changes: ["changes"], closure: ["changes"] }[appType] || null;
+  const stageFor = { initial: ["initial"], renewal: ["renewal"], renewal_changes: ["renewal", "changes"], changes: ["changes"], closure: ["changes"] }[appType] || null;
   const keepForm = (g, f) => {
     if (!stageFor) return true;
     if (g === "federal") return true; // CMS forms travel with every filing type
@@ -136,6 +136,7 @@ function helpers(q) {
     lab, mail, lic, dir, contact, owners, personnel, assistants, assocLabs, prep, hours,
     dba: scrub(lab.dba),
     appType: S(q.triage?.applicationType) || "initial",
+    changeItems: Array.isArray(q.triage?.changeItems) ? q.triage.changeItems : [],
     triageMessage: S(q.triage?.message),
     mailingDiffers: q.mailing?.sameAsPhysical === false,
     street, mailStreet,
@@ -213,7 +214,10 @@ const MAPS = {
     const check = ["Physical", "Physical_2",
       "If additional space is needed, check here and attach additional information using the same format 2"];
     if (h.appType === "initial") check.push("Initial Application");
-    else if (h.appType === "changes" || h.appType === "closure") check.push("Other Changes Specify");
+    else if (["changes", "renewal_changes", "closure"].includes(h.appType)) {
+      if (h.changeItems.includes("director")) check.push("Change in Laboratory Director");
+      if (h.appType === "closure" || h.changeItems.some((c) => c !== "director")) check.push("Other Changes Specify");
+    }
     if (h.lab.email) check.push("Receive Future Notifications Via Email");
     const type = h.lic.certificateType;
     if (type === "waiver") check.push("Certificate of Waiver Complete Sections I  VI and IX  X");
@@ -383,7 +387,7 @@ const MAPS = {
     if (h.appType === "closure") {
       text["Closing Reason"] = h.triageMessage || "Laboratory closure";
       text["Closing Effective Date_af_date"] = h.lab.effectiveDate;
-    } else if (h.appType === "changes" && h.triageMessage) {
+    } else if (["changes", "renewal_changes"].includes(h.appType) && h.triageMessage) {
       text["Other Changes (Specify)"] = h.triageMessage;
     }
     return { text };

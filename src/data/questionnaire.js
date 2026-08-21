@@ -71,19 +71,31 @@ export const TRIAGE_STATEMENT =
 export const COMPLEXITY_LEVELS = ['Waived', 'Moderate', 'High'];
 
 export const TRIAGE_QUESTIONS = [
-  { id: 'initial', text: 'Is this for an initial application?', type: 'initial', label: 'Initial Application Set Up' },
-  { id: 'renewal', text: 'Is this for a renewal with no changes?', type: 'renewal', label: 'Renewal paperwork' },
-  { id: 'runningChange', text: 'Is the laboratory currently running patients on site and making a change other than DIRECTOR or TEST MENU?', type: 'changes', label: 'Major changes paperwork' },
-  { id: 'pausedChange', text: 'Is the laboratory currently NOT running patients due to changing test menu OR director change and expects to resume testing after the change?', type: 'changes', label: 'Major changes paperwork' },
-  { id: 'closure', text: 'Is the laboratory submitting for closure?', type: 'closure', label: 'Closure paperwork' },
+  { id: 'initial', text: 'Is this for an initial application?', type: 'initial' },
+  { id: 'renewal', text: 'Is this for a renewal with no changes?', type: 'renewal' },
+  { id: 'renewalChanges', text: 'Is the laboratory renewing with changes?', type: 'renewal_changes', changeItems: true },
+  { id: 'makingChanges', text: 'Is the laboratory making changes? (outside of renewal period)', type: 'changes', changeItems: true },
+  { id: 'closure', text: 'Is the laboratory submitting for closure?', type: 'closure' },
+];
+
+export const CHANGE_ITEMS = [
+  { value: 'name', label: 'Laboratory Name' },
+  { value: 'owner', label: 'Laboratory Owner' },
+  { value: 'director', label: 'Laboratory Director' },
+  { value: 'testMenu', label: 'Laboratory Test Menu' },
 ];
 
 export const APPLICATION_TYPE_LABELS = {
   initial: 'Initial Application Set Up',
   renewal: 'Renewal paperwork',
+  renewal_changes: 'Renewal + changes paperwork',
   changes: 'Major changes paperwork',
   closure: 'Closure paperwork',
 };
+
+export const EMAIL_QUESTION =
+  'CLIA mandates electronic services — what email will you use to send and receive compliance paperwork?';
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const DAYS = [
   { key: 'mon', label: 'Mon' }, { key: 'tue', label: 'Tue' }, { key: 'wed', label: 'Wed' },
@@ -96,7 +108,7 @@ export const DIRECTOR_LICENSE_TYPES = [
 ];
 
 export const EMPTY_QUESTIONNAIRE = {
-  triage: { accepted: false, complexity: '', answers: {}, applicationType: '', message: '' },
+  triage: { accepted: false, complexity: '', answers: {}, applicationType: '', changeItems: [], message: '' },
   targetStates: [],
   lab: {
     name: '', dba: '', address: '', suite: '', city: '', state: '', zip: '', county: '',
