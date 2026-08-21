@@ -119,7 +119,7 @@ export const EMPTY_QUESTIONNAIRE = {
   ownership: { type: '', otherText: '' },
   license: {
     cliaNumber: '', cliaExpiration: '', certificateType: '', accreditingOrg: '',
-    colaNumber: '', caStateId: '', caExpiration: '',
+    colaNumber: '', colaExpiration: '', caStateId: '', caExpiration: '',
   },
   owners: [{ name: '', taxId: '', percent: '', address: '', city: '', state: '', zip: '', phone: '', title: '' }],
   director: {
@@ -127,9 +127,12 @@ export const EMPTY_QUESTIONNAIRE = {
     licenseExpiration: '', licenseIssuer: '', phone: '', email: '', address: '', city: '', state: '', zip: '',
     associationDate: '', hoursPerWeek: '',
   },
-  contact: { name: '', phone: '', email: '' },
+  contact: { name: '', position: '', phone: '', email: '' },
   personnel: [{ firstName: '', middleInitial: '', lastName: '', roles: ['TP'], licenseType: '', licenseNumber: '', specialtyCodes: '' }],
   assistants: [],
   associatedLabs: [],
+  assays: [],
   preparedBy: { name: '', title: '' },
 };
+
+export const EMPTY_ASSAY = { analyte: '', testName: '', manufacturer: '', instrument: '', instrumentManufacturer: '', complexity: '' };

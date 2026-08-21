@@ -1,7 +1,7 @@
 // Licensing questionnaire → state form auto-fill engine.
 // One canonical questionnaire feeds every form; each form's map bridges its own
 // wording ("laboratory" vs "facility", "EIN" vs "Federal Tax ID", etc.).
-import { PDFDocument, PDFName } from "pdf-lib";
+import { PDFDocument, PDFName, StandardFonts } from "pdf-lib";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -122,6 +122,7 @@ function helpers(q) {
   const personnel = (q.personnel || []).filter((p) => S(p.lastName) || S(p.firstName) || S(p.name));
   const assistants = (q.assistants || []).filter((a) => S(a.name));
   const assocLabs = (q.associatedLabs || []).filter((l) => S(l.name) || S(l.cliaNumber));
+  const assays = (q.assays || []).filter((a) => S(a.analyte) || S(a.testName) || S(a.manufacturer) || S(a.instrument));
   const prep = q.preparedBy || {};
   const hours = lab.hours || {};
 
@@ -133,7 +134,7 @@ function helpers(q) {
   const dirLastFirst = join([dir.lastName, join([dir.firstName, dir.middleInitial])], ", ");
 
   return {
-    lab, mail, lic, dir, contact, owners, personnel, assistants, assocLabs, prep, hours,
+    lab, mail, lic, dir, contact, owners, personnel, assistants, assocLabs, assays, prep, hours,
     dba: scrub(lab.dba),
     appType: S(q.triage?.applicationType) || "initial",
     changeItems: Array.isArray(q.triage?.changeItems) ? q.triage.changeItems : [],
@@ -593,6 +594,51 @@ async function fillTxForm(q, bytes) {
   return doc.save({ useObjectStreams: false });
 }
 
+// ---------- test-menu attachment pages ("See attached") ----------
+const ASSAY_COLS = [
+  { k: "analyte", t: "ANALYTE / TEST", w: 100 },
+  { k: "testName", t: "TEST / ASSAY NAME", w: 118 },
+  { k: "manufacturer", t: "ASSAY MFR", w: 100 },
+  { k: "instrument", t: "INSTRUMENT", w: 100 },
+  { k: "instrumentManufacturer", t: "INSTRUMENT MFR", w: 100 },
+  { k: "complexity", t: "M/H", w: 30 },
+];
+
+async function appendAssayPages(doc, q) {
+  const h = helpers(q);
+  if (!h.assays.length) return;
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const total = h.assays.length;
+  let page = null, y = 0, pageNo = 0;
+  const newPage = () => {
+    pageNo++;
+    page = doc.addPage([612, 792]);
+    y = 742;
+    page.drawText("TEST MENU ATTACHMENT — " + (h.lab.name || "Laboratory"), { x: 40, y, size: 12, font: bold });
+    y -= 15;
+    page.drawText(`CLIA #: ${h.lic.cliaNumber || "—"}    ${total} assay(s) — attachment referenced as "See attached" on the test menu    (attachment page ${pageNo})`, { x: 40, y, size: 8.5, font });
+    y -= 18;
+    let x = 40;
+    for (const c of ASSAY_COLS) { page.drawText(c.t, { x, y, size: 8, font: bold }); x += c.w; }
+    y -= 5;
+    page.drawLine({ start: { x: 40, y }, end: { x: 572, y }, thickness: 0.7 });
+    y -= 13;
+  };
+  newPage();
+  for (const a of h.assays) {
+    if (y < 50) newPage();
+    let x = 40;
+    for (const c of ASSAY_COLS) {
+      const raw = S(a[c.k]);
+      const maxChars = Math.max(4, Math.floor(c.w / 4.3));
+      page.drawText(raw.length > maxChars ? raw.slice(0, maxChars - 1) + "…" : raw, { x, y, size: 8, font });
+      x += c.w;
+    }
+    y -= 13.5;
+  }
+}
+
 // ---------- main entry ----------
 export async function fillFormPdf(formId, q) {
   const def = FORM_CATALOG.find((f) => f.id === formId);
@@ -630,6 +676,10 @@ export async function fillFormPdf(formId, q) {
     try { form.getRadioGroup(group).select(option); } catch { /* skip */ }
   }
   try { form.updateFieldAppearances(); } catch { /* some forms lack default fonts */ }
+  // test-menu forms carry the full assay list as attachment pages
+  if (formId === "CMS116" || formId === "LAB144A") {
+    try { await appendAssayPages(doc, q || {}); } catch (e) { console.error("assay attachment:", e); }
+  }
   const out = await doc.save({ useObjectStreams: false });
   return { bytes: out, filename: def.file, title: def.title };
 }

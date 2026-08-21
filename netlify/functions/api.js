@@ -727,15 +727,16 @@ Respond with ONLY a JSON object (no markdown fences, no prose):
     "mailing": { "sameAsPhysical": true|false, "address": "", "suite": "", "city": "", "state": "", "zip": "" },
     "ownership": { "type": "one of: sole_proprietorship,general_partnership,limited_partnership,llp,llc,corporation,unincorporated_association,nonprofit,religious,city,county,state,federal,other_gov,other or empty", "otherText": "" },
     "license": { "cliaNumber": "", "cliaExpiration": "", "certificateType": "one of: compliance,accreditation,waiver,ppm or empty",
-                 "accreditingOrg": "", "colaNumber": "", "caStateId": "", "caExpiration": "" },
+                 "accreditingOrg": "", "colaNumber": "", "colaExpiration": "", "caStateId": "", "caExpiration": "" },
     "owners": [ { "name": "", "title": "", "taxId": "", "percent": "", "address": "", "city": "", "state": "", "zip": "", "phone": "" } ],
     "director": { "firstName": "", "middleInitial": "", "lastName": "", "titles": "", "licenseType": "", "licenseNumber": "",
                   "licenseExpiration": "", "licenseIssuer": "", "phone": "", "email": "", "address": "", "city": "", "state": "",
                   "zip": "", "associationDate": "", "hoursPerWeek": "" },
-    "contact": { "name": "", "phone": "", "email": "" },
+    "contact": { "name": "", "position": "", "phone": "", "email": "" },
     "personnel": [ { "firstName": "", "middleInitial": "", "lastName": "", "roles": ["one or more of GS, TS, TC, TP"], "licenseType": "", "licenseNumber": "" } ],
     "assistants": [ { "name": "", "schedule": "", "function": "" } ],
     "associatedLabs": [ { "cliaNumber": "", "name": "" } ],
+    "assays": [ { "analyte": "", "testName": "", "manufacturer": "", "instrument": "", "instrumentManufacturer": "", "complexity": "M or H or empty" } ],
     "preparedBy": { "name": "", "title": "" }
   },
   "warnings": [short strings for anything illegible, ambiguous, or missing that a human should verify]

@@ -4,8 +4,17 @@ import {
   CERTIFICATE_TYPES, ACCREDITING_ORGS, PERSONNEL_ROLES, DAYS, DIRECTOR_LICENSE_TYPES,
   SELECTABLE_STATES, NY_DISCLAIMER,
   TRIAGE_STATEMENT, COMPLEXITY_LEVELS, TRIAGE_QUESTIONS, APPLICATION_TYPE_LABELS,
-  CHANGE_ITEMS, EMAIL_QUESTION, EMAIL_RE,
+  CHANGE_ITEMS, EMAIL_QUESTION, EMAIL_RE, EMPTY_ASSAY,
 } from '../data/questionnaire';
+
+// --- "cannot be same as laboratory" comparisons (yellow-note validations) ---
+const normText = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const normPhone = (v) => String(v || '').replace(/\D/g, '');
+const sameText = (a, b) => normText(a) !== '' && normText(a) === normText(b);
+const samePhone = (a, b) => normPhone(a) !== '' && normPhone(a) === normPhone(b);
+const SameWarn = ({ show, what }) => (show
+  ? <span className="q-samewarn">⚠ Cannot be the same as the laboratory's {what}</span>
+  : null);
 import '../styles/dashboard.css';
 
 // Deep-merge saved data over the empty template so new fields never break old saves
@@ -19,7 +28,7 @@ function mergeQ(saved) {
   merged.triage.answers = { ...(saved.triage?.answers || {}) };
   merged.triage.changeItems = Array.isArray(saved.triage?.changeItems) ? saved.triage.changeItems : [];
   merged.lab.hours = { ...(saved.lab?.hours || {}) };
-  for (const k of ['owners', 'personnel', 'assistants', 'associatedLabs', 'targetStates']) {
+  for (const k of ['owners', 'personnel', 'assistants', 'associatedLabs', 'assays', 'targetStates']) {
     merged[k] = Array.isArray(saved[k]) ? saved[k] : base[k];
   }
   return merged;
@@ -295,7 +304,7 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
           <Field label="Email (from Start here)">
             <input type="text" value={q.lab.email} readOnly disabled />
           </Field>
-          <Field label="Effective / anticipated start date">
+          <Field label="Lab entity start date">
             <input type="date" value={q.lab.effectiveDate} onChange={(e) => set('lab.effectiveDate', e.target.value)} />
           </Field>
           <Field label="EIN / Federal Tax ID">{txt('lab.ein', q.lab.ein)}</Field>
@@ -349,18 +358,17 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
             </select>
           </Field>
           {q.license.certificateType === 'accreditation' && (
-            <>
-              <Field label="Accrediting organization">
-                <select value={q.license.accreditingOrg} onChange={(e) => set('license.accreditingOrg', e.target.value)}>
-                  <option value="">Select…</option>
-                  {ACCREDITING_ORGS.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              </Field>
-              {q.license.accreditingOrg === 'COLA' && (
-                <Field label="COLA number">{txt('license.colaNumber', q.license.colaNumber)}</Field>
-              )}
-            </>
+            <Field label="Accrediting organization">
+              <select value={q.license.accreditingOrg} onChange={(e) => set('license.accreditingOrg', e.target.value)}>
+                <option value="">Select…</option>
+                {ACCREDITING_ORGS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </Field>
           )}
+          <Field label="COLA number (if any)">{txt('license.colaNumber', q.license.colaNumber)}</Field>
+          <Field label="COLA expiration">
+            <input type="date" value={q.license.colaExpiration || ''} onChange={(e) => set('license.colaExpiration', e.target.value)} />
+          </Field>
           {q.targetStates.includes('CA') && (
             <>
               <Field label="CA state lab ID (if issued)">{txt('license.caStateId', q.license.caStateId)}</Field>
@@ -384,8 +392,14 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
               <Field label="Title"><input type="text" value={o.title || ''} onChange={(e) => setRow('owners', i, 'title', e.target.value)} /></Field>
               <Field label="Tax ID / SSN"><input type="text" value={o.taxId} onChange={(e) => setRow('owners', i, 'taxId', e.target.value)} /></Field>
               <Field label="% owned"><input type="text" value={o.percent} onChange={(e) => setRow('owners', i, 'percent', e.target.value)} /></Field>
-              <Field label="Street address" wide><input type="text" value={o.address} onChange={(e) => setRow('owners', i, 'address', e.target.value)} /></Field>
-              <Field label="City"><input type="text" value={o.city} onChange={(e) => setRow('owners', i, 'city', e.target.value)} /></Field>
+              <Field label="Street address" wide>
+                <input type="text" value={o.address} onChange={(e) => setRow('owners', i, 'address', e.target.value)} />
+                <SameWarn show={sameText(o.address, q.lab.address)} what="address" />
+              </Field>
+              <Field label="City">
+                <input type="text" value={o.city} onChange={(e) => setRow('owners', i, 'city', e.target.value)} />
+                <SameWarn show={sameText(o.city, q.lab.city) && sameText(o.zip, q.lab.zip) && sameText(o.address, q.lab.address)} what="city/state/zip" />
+              </Field>
               <Field label="State">
                 <select value={o.state} onChange={(e) => setRow('owners', i, 'state', e.target.value)}>
                   <option value="">—</option>
@@ -393,7 +407,10 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
                 </select>
               </Field>
               <Field label="ZIP"><input type="text" value={o.zip} onChange={(e) => setRow('owners', i, 'zip', e.target.value)} /></Field>
-              <Field label="Phone"><input type="text" value={o.phone} onChange={(e) => setRow('owners', i, 'phone', e.target.value)} /></Field>
+              <Field label="Phone">
+                <input type="text" value={o.phone} onChange={(e) => setRow('owners', i, 'phone', e.target.value)} />
+                <SameWarn show={samePhone(o.phone, q.lab.phone)} what="phone" />
+              </Field>
             </div>
             {q.owners.length > 1 && (
               <button type="button" className="link-button danger small" onClick={() => removeRow('owners', i)}>Remove owner</button>
@@ -425,10 +442,22 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
             <input type="date" value={q.director.licenseExpiration} onChange={(e) => set('director.licenseExpiration', e.target.value)} />
           </Field>
           <Field label="Issuing board / agency">{txt('director.licenseIssuer', q.director.licenseIssuer)}</Field>
-          <Field label="Phone">{txt('director.phone', q.director.phone)}</Field>
-          <Field label="Email">{txt('director.email', q.director.email)}</Field>
-          <Field label="Street address" wide>{txt('director.address', q.director.address)}</Field>
-          <Field label="City">{txt('director.city', q.director.city)}</Field>
+          <Field label="Phone">
+            {txt('director.phone', q.director.phone)}
+            <SameWarn show={samePhone(q.director.phone, q.lab.phone)} what="phone" />
+          </Field>
+          <Field label="Email">
+            {txt('director.email', q.director.email)}
+            <SameWarn show={sameText(q.director.email, q.lab.email)} what="email" />
+          </Field>
+          <Field label="Street address" wide>
+            {txt('director.address', q.director.address)}
+            <SameWarn show={sameText(q.director.address, q.lab.address)} what="address" />
+          </Field>
+          <Field label="City">
+            {txt('director.city', q.director.city)}
+            <SameWarn show={sameText(q.director.city, q.lab.city) && sameText(q.director.zip, q.lab.zip) && sameText(q.director.address, q.lab.address)} what="city/state/zip" />
+          </Field>
           <Field label="State">
             <select value={q.director.state} onChange={(e) => set('director.state', e.target.value)}>
               <option value="">—</option>
@@ -447,6 +476,7 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
         <h3 className="card-title">Primary contact</h3>
         <div className="q-grid">
           <Field label="Name">{txt('contact.name', q.contact.name)}</Field>
+          <Field label="Position">{txt('contact.position', q.contact.position)}</Field>
           <Field label="Phone">{txt('contact.phone', q.contact.phone)}</Field>
           <Field label="Email">{txt('contact.email', q.contact.email)}</Field>
         </div>
@@ -454,7 +484,23 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
 
       <section className="card">
         <h3 className="card-title">Testing personnel</h3>
-        <p className="muted">Supervisors and testing staff (GS / TS / TC / TP) with their licenses.</p>
+        <p className="muted">Supervisors and testing staff (GS / TS / TC / CC / TP) with their licenses.</p>
+        {(() => {
+          const roleSet = new Set(q.personnel.flatMap((p) => personRoles(p)));
+          const warns = [];
+          if (q.triage.complexity === 'High' && !(roleSet.has('GS') && roleSet.has('TS'))) {
+            warns.push('HIGH complexity requires a General Supervisor (GS) and a Technical Supervisor (TS).');
+          }
+          if (q.triage.complexity === 'Moderate' && !(roleSet.has('GS') && roleSet.has('TC'))) {
+            warns.push('MODERATE complexity requires a General Supervisor (GS) and a Technical Consultant (TC).');
+          }
+          if (!roleSet.has('TP')) {
+            warns.push('At least one Testing Personnel (TP) is required.');
+          }
+          return warns.length ? (
+            <div className="q-req-warns">{warns.map((w, i) => <p key={i}>⚠ {w}</p>)}</div>
+          ) : null;
+        })()}
         {q.personnel.map((p, i) => (
           <div className="q-person-row" key={i}>
             <input type="text" placeholder="First" value={p.firstName} onChange={(e) => setRow('personnel', i, 'firstName', e.target.value)} />
@@ -491,10 +537,10 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
         <p className="muted small">Roles (check all that a person holds): GS = General Supervisor · TS = Technical Supervisor · TC = Technical Consultant · TP = Testing Personnel</p>
       </section>
 
-      {q.targetStates.includes('CA') && q.lab.state === 'CA' && (
+      {q.targetStates.includes('CA') && (
         <section className="card">
-          <h3 className="card-title">Lab assistants (California)</h3>
-          <p className="muted">Non-testing staff and their schedules — goes on the CA personnel report.</p>
+          <h3 className="card-title">Non-TP lab persons (California requirement only)</h3>
+          <p className="muted">Non-testing staff and their schedules — required for California licensure; goes on the CA personnel report.</p>
           {q.assistants.map((a, i) => (
             <div className="q-person-row q-assistant-row" key={i}>
               <input type="text" placeholder="Name" value={a.name} onChange={(e) => setRow('assistants', i, 'name', e.target.value)} />
@@ -510,8 +556,31 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
       )}
 
       <section className="card">
+        <h3 className="card-title">Laboratory testing</h3>
+        <p className="muted">List every assay with its manufacturer, and the instrumentation with its manufacturer. This becomes the attached test-menu pages on the CMS-116 ("See attached").</p>
+        {q.assays.map((a, i) => (
+          <div className="q-person-row q-assay-row" key={i}>
+            <input type="text" placeholder="Analyte / test" value={a.analyte} onChange={(e) => setRow('assays', i, 'analyte', e.target.value)} />
+            <input type="text" placeholder="Test / assay name" value={a.testName} onChange={(e) => setRow('assays', i, 'testName', e.target.value)} />
+            <input type="text" placeholder="Assay manufacturer" value={a.manufacturer} onChange={(e) => setRow('assays', i, 'manufacturer', e.target.value)} />
+            <input type="text" placeholder="Instrument" value={a.instrument} onChange={(e) => setRow('assays', i, 'instrument', e.target.value)} />
+            <input type="text" placeholder="Instrument manufacturer" value={a.instrumentManufacturer} onChange={(e) => setRow('assays', i, 'instrumentManufacturer', e.target.value)} />
+            <select value={a.complexity || ''} onChange={(e) => setRow('assays', i, 'complexity', e.target.value)} title="Moderate or High">
+              <option value="">M/H</option>
+              <option value="M">M</option>
+              <option value="H">H</option>
+            </select>
+            <button type="button" className="link-button danger small" onClick={() => removeRow('assays', i)}>×</button>
+          </div>
+        ))}
+        <button type="button" className="link-button" onClick={() => addRow('assays', { ...EMPTY_ASSAY, complexity: q.triage.complexity === 'High' ? 'H' : q.triage.complexity === 'Moderate' ? 'M' : '' })}>
+          + Add assay
+        </button>
+      </section>
+
+      <section className="card">
         <h3 className="card-title">Associated laboratories</h3>
-        <p className="muted">Other labs under common ownership or direction (CLIA multiple-site section).</p>
+        <p className="muted">Other laboratories this director is associated with — up to five (CLIA multiple-site section).</p>
         {q.associatedLabs.map((l, i) => (
           <div className="q-person-row q-assoc-row" key={i}>
             <input type="text" placeholder="CLIA number" value={l.cliaNumber} onChange={(e) => setRow('associatedLabs', i, 'cliaNumber', e.target.value)} />
@@ -519,7 +588,7 @@ export function QuestionnairePanel({ api, questionnairePath, formDownloadPath, c
             <button type="button" className="link-button danger small" onClick={() => removeRow('associatedLabs', i)}>×</button>
           </div>
         ))}
-        {q.associatedLabs.length < 6 && (
+        {q.associatedLabs.length < 5 && (
           <button type="button" className="link-button" onClick={() => addRow('associatedLabs', { cliaNumber: '', name: '' })}>
             + Add associated lab
           </button>
